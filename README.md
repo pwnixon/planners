@@ -6,12 +6,13 @@ line items instead of starting from a recommendation.
 ## Setup
 
 ```bash
-./setup.sh   # clones pwnixon/design-system as ../_template and installs deps
+./setup.sh   # npm install (pulls the @archera/design-system dependency)
 npm run dev
 ```
 
-The shared design system (`theme`, `tokens`, `palette`, `AppShell`) lives in the sibling
-`../_template` directory and is not committed to this repo.
+The shared design system (`theme`, `tokens`, `palette`, `AppShell`) is the
+`@archera/design-system` package (`github:pwnixon/design-system`), pinned in
+`package.json`. Import from `@archera/design-system/*` — never a relative path.
 
 ## Screens
 
