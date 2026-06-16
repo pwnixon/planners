@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite --open",
-    "build": "vite build"
+    "build": "vite build",
+    "audit": "ds-audit"
   },
   "dependencies": {
     "@archera/design-system": "github:pwnixon/design-system#v1.0.0",
