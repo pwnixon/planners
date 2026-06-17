@@ -541,44 +541,26 @@ function InstanceRow({ instance, selections, setSelection, visibleTermIds }) {
   );
 }
 
-// ─── Header metric card — mirrors the KPI card treatment, compact ───────────
-
-function HeaderMetricCard({ icon, label, value, grad, valueColor }) {
+// ─── Header metric "stat" — NEW Design System ThumbStat (node 2016:1201) ────
+// Outlined pill: label left, bold value right, no icon. Per-metric color kept on
+// the value and a tinted border.
+function HeaderMetricCard({ label, value, accent }) {
   return (
     <Stack
       direction="row"
-      spacing={1.5}
       alignItems="center"
+      spacing={1.5}
       sx={{
-        border: `1px solid ${color.outlineBorder}`,
+        border: `2px solid ${alpha(accent, 0.45)}`,
         borderRadius: 1,
-        px: 2,
-        py: 1.25,
+        px: 2.5,
+        py: 1.5,
         bgcolor: palette.surface,
+        minWidth: 156,
       }}
     >
-      <Box
-        sx={{
-          width: 36,
-          height: 36,
-          borderRadius: 3,
-          background: `linear-gradient(135deg, ${grad[0]}, ${grad[1]})`,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          flexShrink: 0,
-        }}
-      >
-        <MuiIcon baseClassName="material-icons-outlined" sx={{ fontSize: 18, color: palette.neutral.white }}>
-          {icon}
-        </MuiIcon>
-      </Box>
-      <Box>
-        <Typography variant="subtitle2" color="text.secondary" sx={{ textTransform: 'none' }} noWrap>
-          {label}
-        </Typography>
-        <Typography variant="h3" sx={{ color: valueColor }}>{value}</Typography>
-      </Box>
+      <Typography variant="body3" color="text.secondary" sx={{ flex: 1 }} noWrap>{label}</Typography>
+      <Typography variant="body3" sx={{ fontWeight: 700, color: accent, flexShrink: 0 }}>{value}</Typography>
     </Stack>
   );
 }
@@ -660,27 +642,19 @@ export default function ServiceCard({ service, selections, setSelection, setServ
         </Box>
         <Stack direction="row" spacing={1.5} alignItems="center">
           <HeaderMetricCard
-            icon="pie_chart"
             label="Current coverage"
             value={fmtPct(m.currentCoverage)}
-            grad={m.currentCoverage < 0.5
-              ? [palette.error[400], palette.error[700]]
-              : [palette.uiPrimary[400], palette.uiPrimary[700]]}
-            valueColor={m.currentCoverage < 0.5 ? semantic.error.dark : palette.text.primary}
+            accent={m.currentCoverage < 0.5 ? semantic.error.main : palette.uiPrimary[500]}
           />
           <HeaderMetricCard
-            icon="verified_user"
             label="Updated coverage"
             value={fmtPct(m.projectedCoverage)}
-            grad={[palette.success[400], palette.success[700]]}
-            valueColor={semantic.success.dark}
+            accent={semantic.success.main}
           />
           <HeaderMetricCard
-            icon="savings"
             label="Savings"
             value={`${fmtMoney(m.savingsMo)}/mo`}
-            grad={[palette.success[400], palette.success[700]]}
-            valueColor={semantic.success.dark}
+            accent={semantic.success.main}
           />
         </Stack>
         <Tooltip title={expanded ? 'Collapse commitment options' : 'Expand commitment options'}>

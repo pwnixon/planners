@@ -6,13 +6,13 @@ import {
 import { alpha } from '@mui/material/styles';
 import AppShell from '@archera/design-system/AppShell';
 import palette from '@archera/design-system/palettes/archera-palette';
-import { color, elevation } from '@archera/design-system/tokens';
+import { color, semantic, elevation } from '@archera/design-system/tokens';
 import KpiSection from './KpiSection';
 import ServiceCard from './ServiceCard';
 import BriefingOverlay from './BriefingOverlay';
 import {
   SERVICES, TERMS, TERM_ORDER, TERM_LENGTHS, PRESETS, defaultSelections, applyPreset, detectPlan,
-  pageMetrics, DEFAULT_FEATURED, fmtMoney, KPI_CATALOG,
+  pageMetrics, DEFAULT_FEATURED, fmtMoney, fmtPct, optionFor, KPI_CATALOG,
 } from './data';
 
 const kpiById = Object.fromEntries(KPI_CATALOG.map((k) => [k.id, k]));
@@ -170,7 +170,7 @@ function StrategyCard({ title, desc, active, isCustom, tone = 'recommended', onS
               onClick={(e) => { e.stopPropagation(); onApply(); }}
               sx={{ width: PLAN_ACTION_WIDTH, bgcolor: t.status, '&:hover': { bgcolor: t.statusDark } }}
             >
-              Apply this plan
+              Review &amp; apply
             </Button>
           </Stack>
         </Box>
@@ -180,6 +180,82 @@ function StrategyCard({ title, desc, active, isCustom, tone = 'recommended', onS
 }
 
 import archeraMarkBlackSvg from './assets/archera-mark-black.svg';
+
+// ─── Review & apply modal ────────────────────────────────────────────────────
+// Plan summary (savings / coverage / count) over a condensed line-item table,
+// grouped by service.
+function ReviewApplyModal({ open, onClose, onConfirm, planName, metrics, selections }) {
+  const netSavings = metrics.savingsMo.projected - metrics.savingsMo.current;
+  const termLengthLabel = (termId) => (TERM_LENGTHS.find((l) => l.termIds.includes(termId))?.label ?? '—');
+  const groups = SERVICES
+    .map((svc) => ({
+      service: svc,
+      rows: svc.instances.filter((i) => selections[i.id]).map((i) => {
+        const termId = selections[i.id];
+        const opt = optionFor(i, termId);
+        return { id: i.id, name: i.name, type: TERMS[termId].guaranteed ? 'Guaranteed' : 'Standard', term: termLengthLabel(termId), cost: opt.commitCostMo, savings: opt.savingsMo };
+      }),
+    }))
+    .filter((g) => g.rows.length > 0);
+
+  const W = { type: 132, term: 90, cost: 104, sav: 128 };
+
+  return (
+    <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
+      <DialogTitle>{planName} — review &amp; apply</DialogTitle>
+      <DialogContent>
+        <Stack direction="row" spacing={5} sx={{ mb: 3, p: 2, borderRadius: 1, bgcolor: alpha(palette.brandPrimary[50], 0.4) }}>
+          <Box>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>Net monthly savings</Typography>
+            <Typography variant="h4" sx={{ color: semantic.success.dark }}>+{fmtMoney(netSavings)}/mo</Typography>
+          </Box>
+          <Box>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>Projected coverage</Typography>
+            <Typography variant="h4">{fmtPct(metrics.coverage.projected)}</Typography>
+          </Box>
+          <Box>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>Commitments</Typography>
+            <Typography variant="h4">{metrics.count}</Typography>
+          </Box>
+        </Stack>
+
+        <Stack direction="row" spacing={2} alignItems="flex-end" sx={{ pb: 1, borderBottom: `1px solid ${color.outlineBorder}` }}>
+          <Typography variant="h6" color="text.secondary" sx={{ flex: 1 }}>Resource</Typography>
+          <Typography variant="h6" color="text.secondary" sx={{ width: W.type, flexShrink: 0 }}>Commitment type</Typography>
+          <Typography variant="h6" color="text.secondary" sx={{ width: W.term, flexShrink: 0 }}>Term</Typography>
+          <Typography variant="h6" color="text.secondary" sx={{ width: W.cost, flexShrink: 0, textAlign: 'right' }}>Cost/mo</Typography>
+          <Typography variant="h6" color="text.secondary" sx={{ width: W.sav, flexShrink: 0, textAlign: 'right' }}>Net savings/mo</Typography>
+        </Stack>
+
+        {groups.map((g) => (
+          <Box key={g.service.id}>
+            <Typography variant="subtitle2" sx={{ textTransform: 'none', color: palette.text.secondary, bgcolor: palette.neutral[50], px: 1, py: 0.5, mt: 1.5, borderRadius: 0.5 }}>
+              {g.service.name}
+            </Typography>
+            {g.rows.map((r, idx) => (
+              <Stack key={r.id} direction="row" spacing={2} alignItems="center" sx={{ py: 1, borderTop: idx ? `1px solid ${color.divider}` : 'none' }}>
+                <Typography variant="body2" sx={{ flex: 1 }}>{r.name}</Typography>
+                <Box sx={{ width: W.type, flexShrink: 0 }}>
+                  <Chip size="small" variant="outlined" color={r.type === 'Guaranteed' ? 'secondary' : 'default'} label={<Typography variant="micro">{r.type}</Typography>} />
+                </Box>
+                <Typography variant="body2" sx={{ width: W.term, flexShrink: 0 }}>{r.term}</Typography>
+                <Typography variant="body2" sx={{ width: W.cost, flexShrink: 0, textAlign: 'right' }}>{fmtMoney(r.cost)}/mo</Typography>
+                <Typography variant="body2" sx={{ width: W.sav, flexShrink: 0, textAlign: 'right', fontWeight: 600, color: semantic.success.dark }}>+{fmtMoney(r.savings)}/mo</Typography>
+              </Stack>
+            ))}
+          </Box>
+        ))}
+        {groups.length === 0 && (
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>No commitments selected yet — add coverage before applying.</Typography>
+        )}
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose}>Cancel</Button>
+        <Button variant="contained" onClick={onConfirm} disabled={groups.length === 0}>Apply this plan</Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
 
 export default function CustomPlanBuilder() {
   const demo = new URLSearchParams(window.location.search).get('demo');
@@ -206,6 +282,7 @@ export default function CustomPlanBuilder() {
   const [kpiLibOpen, setKpiLibOpen] = useState(false);
   const [savedToast, setSavedToast] = useState(false);
   const [customModalOpen, setCustomModalOpen] = useState(false);
+  const [reviewOpen, setReviewOpen] = useState(false);
   // #1 — fixed condensed header once the plan + KPI sections scroll out of view.
   const [stuck, setStuck] = useState(false);
   const kpiRef = useRef(null);
@@ -349,7 +426,7 @@ export default function CustomPlanBuilder() {
               tone={id}
               active={activePlan === id}
               onSelect={() => handleApply(id)}
-              onApply={() => setSavedToast(true)}
+              onApply={() => setReviewOpen(true)}
             />
           ))}
           <StrategyCard
@@ -359,7 +436,7 @@ export default function CustomPlanBuilder() {
             isCustom
             tone="custom"
             onSelect={() => setCustomModalOpen(true)}
-            onApply={() => setSavedToast(true)}
+            onApply={() => setReviewOpen(true)}
             onSaveDraft={() => setSavedToast(true)}
           />
         </Box>
@@ -480,6 +557,15 @@ export default function CustomPlanBuilder() {
           <Button variant="contained" onClick={startBlank}>Create from a Blank Plan</Button>
         </DialogActions>
       </Dialog>
+
+      <ReviewApplyModal
+        open={reviewOpen}
+        onClose={() => setReviewOpen(false)}
+        onConfirm={() => { setReviewOpen(false); setSavedToast(true); }}
+        planName={activePlanName}
+        metrics={metrics}
+        selections={selections}
+      />
 
       <Snackbar
         open={savedToast}
