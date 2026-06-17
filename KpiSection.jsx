@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react';
 import {
   Box, Stack, Typography, IconButton, Tooltip, Popover, Dialog, DialogTitle, DialogContent,
-  DialogActions, Button, Chip, Checkbox, FormControlLabel, Icon as MuiIcon,
+  DialogActions, Button, Chip, Checkbox, FormControlLabel, Link, Icon as MuiIcon,
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
 import palette from '@archera/design-system/palettes/archera-palette';
@@ -193,12 +193,8 @@ function KpiCard({ kpi, metrics, compact = false, dense = false }) {
     </Box>
   );
 
-  const eyebrow = (
-    <Typography variant="micro" color="text.secondary" sx={{ display: 'block', mb: 0.25 }}>
-      {kpi.group}
-    </Typography>
-  );
-
+  // The KPI type (kpi.group) is intentionally omitted from the card face — it's
+  // surfaced in the hover popover instead (see KpiPopover).
   const label = (
     <Typography variant="subtitle2" color="text.secondary" sx={{ textTransform: 'none', lineHeight: 1.2 }}>
       {kpi.label}
@@ -256,7 +252,6 @@ function KpiCard({ kpi, metrics, compact = false, dense = false }) {
       >
         {iconTile}
         <Box sx={{ flex: 1, minWidth: 0 }}>
-          {eyebrow}
           {label}
           {value}
         </Box>
@@ -424,22 +419,26 @@ function KpiLibraryDialog({ open, onClose, featured, setFeatured, metrics }) {
 
 // ─── KPI strip ───────────────────────────────────────────────────────────────
 
-export default function KpiSection({ metrics, featured, setFeatured, libOpen: libOpenProp, setLibOpen: setLibOpenProp }) {
+export default function KpiSection({ planName, metrics, featured, setFeatured, libOpen: libOpenProp, setLibOpen: setLibOpenProp }) {
   const [libOpenInternal, setLibOpenInternal] = useState(false);
   const libOpen = libOpenProp !== undefined ? libOpenProp : libOpenInternal;
   const setLibOpen = setLibOpenProp ?? setLibOpenInternal;
 
   return (
-    <Stack direction="row" spacing={1.5} alignItems="stretch">
-      {featured.map((id) => (
-        <KpiCard key={id} kpi={kpiById[id]} metrics={metrics} dense={featured.length >= 5} />
-      ))}
-      <Stack justifyContent="center">
-        <Tooltip title="Configure KPIs — browse the full library">
-          <IconButton onClick={() => setLibOpen(true)} size="small">
-            <MuiIcon baseClassName="material-icons-outlined" sx={{ fontSize: 20 }}>tune</MuiIcon>
-          </IconButton>
-        </Tooltip>
+    <Stack spacing={1.5}>
+      <Box>
+        <Typography variant="h3" sx={{ mb: 0.5 }}>{planName ? `${planName} KPIs` : 'KPIs'}</Typography>
+        <Typography variant="body1" color="text.secondary">
+          The metrics tracked for this plan —{' '}
+          <Link component="button" type="button" variant="body1" underline="hover" onClick={() => setLibOpen(true)}>
+            view all and configure
+          </Link>
+        </Typography>
+      </Box>
+      <Stack direction="row" spacing={1.5} alignItems="stretch">
+        {featured.map((id) => (
+          <KpiCard key={id} kpi={kpiById[id]} metrics={metrics} dense={featured.length >= 5} />
+        ))}
       </Stack>
       <KpiLibraryDialog
         open={libOpen}

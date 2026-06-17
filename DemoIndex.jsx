@@ -3,8 +3,8 @@ import { AppHeader } from '@archera/design-system/AppShell';
 
 // ─── Edit this to add / remove demos ─────────────────────────────────────────
 const PROJECT = {
-  name: "Commitment Planner",
-  desc: "Build a commitment plan by hand — pick services, terms, and amounts as line items.",
+  name: "Archera Planners",
+  desc: "Commitment and provisioned-throughput planning prototypes on a shared chassis (simulator, configurable KPI strip, derived presets).",
 };
 
 const DEMOS = [
@@ -21,6 +21,13 @@ const DEMOS = [
     desc: "For users with no actioned plan: 3-step analysis briefing (data-bound findings) that resolves into the prefilled builder.",
     version: "v1",
     status: "live",
+  },
+  {
+    demo: "ptu",
+    title: "PTU / GSU Planner (scaffold)",
+    desc: "Provisioned AI throughput planner — GCP Gemini / GSU. Capacity-not-savings framing: throughput-vs-demand hero chart, recommendation-first fit verdict, and three separate value lenses (capacity / protected value / vs reliability SKU).",
+    version: "v0",
+    status: "wip",
   },
 ];
 // ─────────────────────────────────────────────────────────────────────────────

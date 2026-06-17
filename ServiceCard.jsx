@@ -17,7 +17,9 @@ const selectedBgNative = alpha(palette.warning[50], 0.2);
 const onDemandBg = alpha(semantic.error.light, 0.2);
 
 // By Instance column widths — header row mirrors InstanceRow exactly
-const COL = { checkbox: 42, info: 220, option: 184, util: 88 };
+// Term columns flex to fill the space freed by the removed usage column, but cap
+// at optionMax so they don't sprawl when only one or two term types are selected.
+const COL = { checkbox: 42, info: 220, option: 184, optionMax: 264 };
 
 // CSP brand colors — cloud-brand, not in Archera palette (mirrors AppShell PROVIDER constants)
 // text: brand orange darkened for readability on light backgrounds
@@ -27,31 +29,59 @@ import {
   fmtMoney, fmtPct,
 } from './data';
 
-// ─── Utilization sparkline ───────────────────────────────────────────────────
+// ─── Usage: inline read-out under the resource info + detailed hover chart ───
 
-function Sparkline({ instance }) {
+// Detailed usage-over-period chart shown on hover (richer than the old inline
+// sparkline): filled area, gridlines, period axis, and the stable/variable read.
+function UsageChart({ instance }) {
   const pts = sparkPoints(instance);
-  const w = 100; // viewBox units — svg stretches to fill the row's remaining space
-  const h = 26;
-  const d = pts
-    .map((p, i) => `${i ? 'L' : 'M'}${((i / (pts.length - 1)) * w).toFixed(1)},${(h - 3 - p * (h - 6)).toFixed(1)}`)
-    .join(' ');
+  const w = 256;
+  const h = 88;
+  const pad = 4;
+  const x = (i) => ((i / (pts.length - 1)) * w).toFixed(1);
+  const y = (p) => (h - pad - p * (h - pad * 2)).toFixed(1);
+  const line = pts.map((p, i) => `${i ? 'L' : 'M'}${x(i)},${y(p)}`).join(' ');
+  const area = `${line} L${w},${h} L0,${h} Z`;
   const stroke = instance.stable ? semantic.success.main : semantic.warning.main;
   return (
-    <Tooltip
-      title={instance.stable
-        ? 'Stable — ran continuously for 90+ days. Longer terms are safe here.'
-        : 'Variable usage — shorter guaranteed terms protect you if it drops.'}
-    >
-      <Stack spacing={0.25} sx={{ flex: 1, minWidth: 88 }}>
-        <svg width="100%" height={h} viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none">
-          <path d={d} fill="none" stroke={stroke} strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
-        </svg>
-        <Typography variant="caption" sx={{ color: stroke }}>
-          {instance.stable ? 'stable 90d+' : 'variable'}
+    <Box sx={{ p: 2, width: 288 }}>
+      <Typography variant="micro" color="text.secondary" sx={{ display: 'block', mb: 0.25 }}>Usage · last 90 days</Typography>
+      <Typography variant="h6" color="text.primary" sx={{ mb: 1 }}>
+        {instance.stable ? 'Stable usage' : 'Variable usage'}
+      </Typography>
+      <svg width="100%" height={h} viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" style={{ display: 'block' }}>
+        {[0.25, 0.5, 0.75].map((g) => (
+          <line key={g} x1="0" x2={w} y1={y(g)} y2={y(g)} stroke={color.divider} strokeWidth="1" vectorEffect="non-scaling-stroke" />
+        ))}
+        <path d={area} fill={alpha(stroke, 0.15)} />
+        <path d={line} fill="none" stroke={stroke} strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
+      </svg>
+      <Stack direction="row" justifyContent="space-between" sx={{ mt: 0.25 }}>
+        <Typography variant="caption" color="text.secondary">90d ago</Typography>
+        <Typography variant="caption" color="text.secondary">today</Typography>
+      </Stack>
+      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+        {instance.stable
+          ? 'Ran continuously for 90+ days — longer commitment terms are safe here.'
+          : 'Demand fluctuates — shorter Guaranteed terms protect you if it drops.'}
+      </Typography>
+    </Box>
+  );
+}
+
+// Inline read-out placed under the resource info; hover for the full chart.
+function UsageIndicator({ instance }) {
+  const tone = instance.stable ? semantic.success.main : semantic.warning.main;
+  return (
+    <HoverPopover content={<UsageChart instance={instance} />}>
+      <Stack direction="row" alignItems="center" spacing={0.5} sx={{ mt: 0.5, width: 'fit-content', cursor: 'default' }}>
+        <MuiIcon baseClassName="material-icons-outlined" sx={{ fontSize: 14, color: tone }}>show_chart</MuiIcon>
+        <Typography variant="caption" color="text.secondary">Usage</Typography>
+        <Typography variant="caption" sx={{ color: tone, fontWeight: 500 }}>
+          · {instance.stable ? 'Stable' : 'Variable'}
         </Typography>
       </Stack>
-    </Tooltip>
+    </HoverPopover>
   );
 }
 
@@ -117,8 +147,9 @@ function RadioCellFrame({ selected, borderColor, bg, onClick, tooltip, radio = t
           px: 1.5,
           py: 1,
           cursor: onClick ? 'pointer' : 'default',
-          width: COL.option,
-          flexShrink: 0,
+          flex: 1,
+          minWidth: COL.option,
+          maxWidth: COL.optionMax,
           display: 'flex',
           flexDirection: 'column',
           gap: 0.5,
@@ -373,31 +404,28 @@ function InstanceTableHeader({ visibleTermIds }) {
       <Typography variant="h6" color="text.secondary" sx={{ width: COL.info, flexShrink: 0, pb: 1 }}>
         Resource
       </Typography>
-      <Stack direction="row" spacing={1} alignItems="flex-end" sx={{ flexShrink: 0 }}>
-        <Box sx={{ width: COL.option, flexShrink: 0, px: 1.5, pb: 1 }}>
+      <Stack direction="row" spacing={1} alignItems="flex-end" sx={{ flex: 1 }}>
+        <Box sx={{ flex: 1, minWidth: COL.option, maxWidth: COL.optionMax, px: 1.5, pb: 1 }}>
           <Typography variant="h6" sx={{ color: semantic.error.dark }}>Currently Uncovered</Typography>
-          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: -0.5 }}>missed savings /mo</Typography>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>missed savings /mo</Typography>
         </Box>
         {visibleTermIds.map((t) => {
           const term = TERMS[t];
           return (
-            <Box key={t} sx={{ width: COL.option, flexShrink: 0, px: 1.5, pb: 1 }}>
+            <Box key={t} sx={{ flex: 1, minWidth: COL.option, maxWidth: COL.optionMax, px: 1.5, pb: 1 }}>
               <Typography
                 variant="h6"
                 sx={{ color: term.guaranteed ? palette.brandPrimary[500] : CSP.text }}
               >
                 {term.label}
               </Typography>
-              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: -0.5 }}>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>
                 est. savings /mo
               </Typography>
             </Box>
           );
         })}
       </Stack>
-      <Typography variant="h6" color="text.secondary" sx={{ flex: 1, minWidth: COL.util, pb: 1 }}>
-        Utilization
-      </Typography>
     </Stack>
   );
 }
@@ -422,8 +450,8 @@ function InstanceTableFooter({ service, visibleTermIds, uniformTerm, setServiceT
           {service.instances.length} resources
         </Typography>
       </Box>
-      <Stack direction="row" spacing={1} sx={{ flexShrink: 0 }}>
-        <Box sx={{ width: COL.option, flexShrink: 0, px: 1.5, py: 0.5, textAlign: 'right' }}>
+      <Stack direction="row" spacing={1} sx={{ flex: 1 }}>
+        <Box sx={{ flex: 1, minWidth: COL.option, maxWidth: COL.optionMax, px: 1.5, py: 0.5, textAlign: 'right' }}>
           <Typography variant="h6" color="text.secondary">$0/mo</Typography>
           <Typography variant="caption" color="text.secondary">list {fmtMoney(listTotal)}/mo</Typography>
         </Box>
@@ -435,8 +463,9 @@ function InstanceTableFooter({ service, visibleTermIds, uniformTerm, setServiceT
               <Box
                 onClick={() => setServiceTerm(service.id, isUniform ? null : t)}
                 sx={{
-                  width: COL.option,
-                  flexShrink: 0,
+                  flex: 1,
+                  minWidth: COL.option,
+                  maxWidth: COL.optionMax,
                   px: 1.5,
                   py: 0.5,
                   textAlign: 'right',
@@ -461,7 +490,6 @@ function InstanceTableFooter({ service, visibleTermIds, uniformTerm, setServiceT
           );
         })}
       </Stack>
-      <Box sx={{ flex: 1, minWidth: COL.util }} />
     </Stack>
   );
 }
@@ -495,8 +523,9 @@ function InstanceRow({ instance, selections, setSelection, visibleTermIds }) {
           {instance.type} | {instance.platform} | {instance.region}
         </Typography>
         <Typography variant="caption" color="text.secondary">{instance.resourceId}</Typography>
+        <UsageIndicator instance={instance} />
       </Box>
-      <Stack direction="row" spacing={1} sx={{ flexShrink: 0 }}>
+      <Stack direction="row" spacing={1} sx={{ flex: 1 }}>
         <OnDemandCell instance={instance} visibleTermIds={visibleTermIds} />
         {visibleTermIds.map((t) => (
           <OptionCell
@@ -508,7 +537,6 @@ function InstanceRow({ instance, selections, setSelection, visibleTermIds }) {
           />
         ))}
       </Stack>
-      <Sparkline instance={instance} />
     </Stack>
   );
 }

@@ -1,31 +1,26 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Box, Stack, Typography, Button, Chip, Checkbox, Switch, FormControlLabel, Tooltip,
+  Box, Stack, Typography, Button, Chip, Checkbox, FormControlLabel, Tooltip,
   Snackbar, Alert, Divider,
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
 import AppShell from '@archera/design-system/AppShell';
 import palette from '@archera/design-system/palettes/archera-palette';
-import { color } from '@archera/design-system/tokens';
+import { color, elevation } from '@archera/design-system/tokens';
 import KpiSection from './KpiSection';
 import ServiceCard from './ServiceCard';
 import BriefingOverlay from './BriefingOverlay';
-import InfoPopover from './InfoPopover';
-import HoverPopover from './HoverPopover';
 import {
   SERVICES, TERMS, TERM_ORDER, TERM_LENGTHS, PRESETS, defaultSelections, applyPreset, detectPlan,
   pageMetrics, DEFAULT_FEATURED, fmtMoney,
 } from './data';
 
-// Active-plan highlight — same branded treatment as selected commitment cells
-const activeBg = alpha(palette.brandPrimary[50], 0.2);
-
 function SectionHeader({ title, description, action }) {
   return (
     <Stack direction="row" alignItems="flex-start" spacing={2}>
       <Box sx={{ flex: 1 }}>
-        <Typography variant="h5" sx={{ mb: 0.5 }}>{title}</Typography>
-        <Typography variant="body2" color="text.secondary">{description}</Typography>
+        <Typography variant="h3" sx={{ mb: 0.5 }}>{title}</Typography>
+        <Typography variant="body1" color="text.secondary">{description}</Typography>
       </Box>
       {action}
     </Stack>
@@ -46,139 +41,134 @@ function deriveVisibleTerms(lengths, types) {
 }
 
 // ─── Strategy plan card ──────────────────────────────────────────────────────
-// Each predefined plan (and Custom) is a first-class object: apply it, automate
-// it. Active plan is derived from selections — see detectPlan in data.js.
+// Each predefined plan (and Custom) is a first-class object: apply it or save it.
+// Active plan is derived from selections — see detectPlan in data.js.
+//
+// The active card grows to 2× the inactive ones and swaps to a dark brand
+// gradient with white type; inactive cards sit on a subtle light gradient with
+// dark type. On selection, everything cross-fades together (the standard
+// material-emphasis curve). Notes on the moving parts:
+//   • width      — animated via flex-grow (2 vs 1); flexBasis:0 keeps the ratio exact
+//   • background — two stacked gradient layers; the dark one fades in (gradients
+//                  can't be tweened directly, so we cross-fade opacity instead)
+//   • type       — title size + text colors transition; logo cross-fades black↔white
+//   • chrome     — the Active chip fades/scales in, padding & desc indent ease in
+const cardDarkGradient = `linear-gradient(115deg, ${palette.brandPrimary[900]} 0%, ${palette.brandPrimary[700]} 28%, ${palette.brandSecondary[800]} 62%, ${palette.brandPrimary[900]} 100%)`;
+const cardLightGradient = `linear-gradient(160deg, ${palette.surface} 0%, ${alpha(palette.brandPrimary[50], 0.45)} 100%)`;
+const EMPHASIZED = 'cubic-bezier(0.4, 0, 0.2, 1)';
+const PLAN_ACTION_WIDTH = 154; // footer buttons are a fixed width per the Figma spec
 
 function StrategyCard({ title, desc, active, isCustom, onSelect, onApply, onSaveDraft }) {
-  const [automation, setAutomation] = useState(false);
+  const clickable = !active && Boolean(onSelect);
   return (
     <Box
-      onClick={!active ? onSelect : undefined} // tab click loads the plan into the builder
+      onClick={clickable ? onSelect : undefined} // tab click loads the plan into the builder
       sx={{
-        flex: 1,
-        minWidth: 230,
-        border: active ? `1px solid ${palette.brandPrimary[300]}` : '1px solid transparent',
-        borderRadius: 2,
-        p: 2,
-        background: active ? palette.surface : palette.background,
+        minWidth: 0, // grid track owns the width; allow it to shrink below content
+        // Lock a constant height (card already clips overflow) so re-wrapping the
+        // description at different widths/sizes can't change the card height —
+        // text reflow stays contained and the row never shifts.
+        height: 208,
         display: 'flex',
         flexDirection: 'column',
-        cursor: !active && onSelect ? 'pointer' : 'default',
-        transition: 'background 0.15s ease',
-        ...(!active && onSelect && { '&:hover': { background: alpha(palette.neutral.black, 0.04), '& .tab-title': { color: `${palette.text.primary} !important` } } }),
-      }}
-    >
-      <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 0.5 }}>
-        {!isCustom && (
-          <Box
-            component="img"
-            src={active ? archeraMarkSvg : archeraMarkBlackSvg}
-            alt=""
-            sx={{ width: 27, height: 24, flexShrink: 0, opacity: active ? 1 : 0.27 }}
-          />
-        )}
-        <Typography variant="h4" className="tab-title" color={active ? 'text.primary' : 'text.secondary'} sx={{ flex: 1 }}>
-          {title}
-        </Typography>
-        {active && (
-          <Chip size="small" color="secondary" label={<Typography variant="micro">Active</Typography>} />
-        )}
-      </Stack>
-      <Tooltip
-        title={isCustom
-          ? 'Automation requires a predefined plan — revert your edits to re-enable'
-          : 'Automatically re-apply this plan as your usage changes'}
-      >
-        <FormControlLabel
-          control={
-            <Switch
-              size="small"
-              checked={automation}
-              disabled={isCustom}
-              onChange={(e) => setAutomation(e.target.checked)}
-            />
-          }
-          label={<Typography variant="caption" color="text.secondary">Automation enabled</Typography>}
-          sx={{ mx: 0, my: 0.5 }}
-        />
-      </Tooltip>
-      <Typography variant="body2" color="text.secondary" sx={{ flex: 1, mb: 2 }}>
-        {desc}
-      </Typography>
-      <Stack direction="row" spacing={1}>
-        <Button
-          variant="contained"
-          disabled={!active}
-          sx={{ flex: 1 }}
-          onClick={(e) => { e.stopPropagation(); onApply(); }}
-        >
-          Apply this plan
-        </Button>
-        {isCustom && (
-          <Tooltip title={active ? 'Saves a draft — nothing is purchased until you execute' : 'Activate the custom plan first'}>
-            <span style={{ flex: 1, display: 'flex' }}>
-              <Button
-                fullWidth
-                      variant="outlined"
-                disabled={!active}
-                onClick={(e) => { e.stopPropagation(); onSaveDraft(); }}
-              >
-                Save as draft
-              </Button>
-            </span>
-          </Tooltip>
-        )}
-      </Stack>
-    </Box>
-  );
-}
-
-// Listing Page Header — Archera NEW Design System node 1906:4650 ("Alt Hero 1").
-// 120px brand band with gradient blob art (Figma MCP asset), white H1 + body3.
-import heroBlob from './assets/hero-blob.svg';
-import archeraMarkSvg from './assets/archera-mark.svg';
-import archeraMarkBlackSvg from './assets/archera-mark-black.svg';
-
-function PageHero({ title, subtitle }) {
-  return (
-    <Box
-      sx={{
-        position: 'relative',
-        height: 120,
         overflow: 'hidden',
         borderRadius: 2,
-        borderBottomLeftRadius: 0,
-        borderBottomRightRadius: 0,
-        bgcolor: palette.brandPrimary[500],
-        display: 'flex',
-        flexDirection: 'column',
-        justifyContent: 'center',
+        bgcolor: palette.surface,
+        border: `1px solid ${active ? palette.brandPrimary[500] : color.outlineBorder}`,
+        cursor: clickable ? 'pointer' : 'default',
+        transition: 'border-color 0.3s ease, box-shadow 0.2s ease',
+        '&:hover': { boxShadow: elevation[4] },
+        '&:hover .card-hover': { opacity: 1 },
       }}
     >
+      {/* BODY — gradient (active) or light (inactive); footer below stays white */}
       <Box
-        component="img"
-        src={heroBlob}
-        alt=""
         sx={{
-          position: 'absolute',
-          left: -129,
-          top: -390,
-          width: 1968,
-          height: 780,
-          transform: 'rotate(-0.87deg) skewX(2.66deg)',
+          position: 'relative',
+          flex: 1,
+          overflow: 'hidden',
+          px: 3,
+          pt: 4,
+          pb: active ? 4 : 2.5,
         }}
-      />
-      <Stack spacing={0.5} sx={{ position: 'relative', px: 3 }}>
-        <Typography variant="h1" sx={{ color: palette.neutral.white, letterSpacing: 0 }}>
-          {title}
-        </Typography>
-        <Typography variant="body3" sx={{ color: palette.neutral.white }}>
-          {subtitle}
-        </Typography>
-      </Stack>
+      >
+        <Box sx={{ position: 'absolute', inset: 0, background: cardLightGradient }} />
+        <Box sx={{ position: 'absolute', inset: 0, background: cardDarkGradient, opacity: active ? 1 : 0, transition: `opacity 0.4s ${EMPHASIZED}` }} />
+        {clickable && (
+          <Box className="card-hover" sx={{ position: 'absolute', inset: 0, bgcolor: alpha(palette.neutral.black, 0.04), opacity: 0, transition: 'opacity 0.2s ease' }} />
+        )}
+
+        <Box sx={{ position: 'relative', zIndex: 1 }}>
+          <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: active ? 0.25 : 1 }}>
+            {!isCustom && (
+              <Box
+                component="img"
+                src={archeraMarkBlackSvg}
+                alt=""
+                sx={{ width: 27, height: 24, flexShrink: 0, opacity: active ? 1 : 0.25, filter: active ? 'brightness(0) invert(1)' : 'none', transition: 'opacity 0.3s ease, filter 0.3s ease' }}
+              />
+            )}
+            <Typography
+              variant="h4"
+              sx={{
+                flex: 1,
+                color: active ? palette.neutral.white : palette.text.primary,
+                fontSize: (theme) => (active ? theme.typography.h2.fontSize : theme.typography.h4.fontSize),
+                transition: 'color 0.3s ease',
+              }}
+            >
+              {/\bplan$/i.test(title) ? title : `${title} Plan`}
+            </Typography>
+          </Stack>
+
+          <Typography
+            variant="body2"
+            sx={{
+              pl: active && !isCustom ? '36px' : 0,
+              fontSize: (theme) => (active ? theme.typography.body3.fontSize : theme.typography.body1.fontSize),
+              lineHeight: (theme) => (active ? theme.typography.body3.lineHeight : theme.typography.body1.lineHeight),
+              color: active ? palette.neutral[300] : palette.text.secondary,
+              transition: 'color 0.3s ease',
+            }}
+          >
+            {desc}
+          </Typography>
+        </Box>
+      </Box>
+
+      {/* FOOTER — white bar with status chip + action(s); only on the active plan.
+          Inactive cards are just selectable tabs (click the body to load them). */}
+      {active && (
+        <Box sx={{ bgcolor: palette.surface, p: 1.5 }}>
+          <Stack direction="row" alignItems="center" spacing={1}>
+            <Chip size="small" color="secondary" label={<Typography variant="micro">Active</Typography>} sx={{ flexShrink: 0 }} />
+            <Box sx={{ flex: 1 }} />
+            {isCustom && (
+              <Tooltip title="Saves a draft — nothing is purchased until you execute">
+                <span style={{ display: 'flex' }}>
+                  <Button size="large" variant="outlined" onClick={(e) => { e.stopPropagation(); onSaveDraft(); }} sx={{ width: PLAN_ACTION_WIDTH }}>
+                    Save as draft
+                  </Button>
+                </span>
+              </Tooltip>
+            )}
+            <Button
+              size="large"
+              variant="contained"
+              color="secondary"
+              onClick={(e) => { e.stopPropagation(); onApply(); }}
+              sx={{ width: PLAN_ACTION_WIDTH }}
+            >
+              Apply this plan
+            </Button>
+          </Stack>
+        </Box>
+      )}
     </Box>
   );
 }
+
+import archeraMarkBlackSvg from './assets/archera-mark-black.svg';
 
 export default function CustomPlanBuilder() {
   const demo = new URLSearchParams(window.location.search).get('demo');
@@ -209,6 +199,14 @@ export default function CustomPlanBuilder() {
   // Derived, never stored: editing a predefined plan makes it Custom; reverting
   // the edits makes it predefined again (keeps automation eligibility honest).
   const activePlan = useMemo(() => detectPlan(selections), [selections]);
+  // Display label for the active plan — matches the card titles (with " Plan" suffix).
+  const activePlanName = (() => {
+    const raw = activePlan === 'custom' ? 'Custom Plan' : (PRESETS[activePlan]?.label ?? 'Plan');
+    return /\bplan$/i.test(raw) ? raw : `${raw} Plan`;
+  })();
+  // Distinct commitment terms actually selected in the plan (TERM_ORDER for stable order).
+  const includedTermIds = new Set(Object.values(selections).filter(Boolean));
+  const includedTermLabels = TERM_ORDER.filter((t) => includedTermIds.has(t)).map((t) => TERMS[t].label);
 
   // Keep the latest custom state so clicking the Custom tab can restore it
   // after switching to a predefined plan.
@@ -252,20 +250,20 @@ export default function CustomPlanBuilder() {
   return (
     <AppShell breadcrumb="Cost Optimization" pageName="Commitment Planner" provider="AWS">
       <Stack spacing={2.5} sx={{ maxWidth: 1280, mx: 'auto', width: '100%' }}>
-        {/* Page header — Listing Page Header hero band */}
-        <PageHero
-          title="Commitment Planner"
-          subtitle="Your plan is pre-built from last night's analysis — adjust term lengths by service or instance, or execute as-is. Savings shown are net of Archera premiums."
-        />
-
         {/* Plan tabs — predefined strategies + the custom plan; active tab opens into the page */}
-        <Stack
-          direction="row"
-          spacing={1.5}
-          alignItems="stretch"
-          useFlexGap
-          flexWrap="wrap"
-          sx={{}}
+        {/* Grid (not flex): Chrome interpolates grid-template-columns fr units, so
+            the active card's 2fr↔1fr width change animates smoothly — flex-grow
+            does not animate and was snapping. */}
+        <Box
+          sx={{
+            display: 'grid',
+            gridTemplateColumns: [...Object.keys(PRESETS).filter((k) => k !== 'high_savings'), 'custom']
+              .map((id) => (activePlan === id ? '2fr' : '1fr'))
+              .join(' '),
+            gap: 1.5,
+            alignItems: 'stretch',
+            transition: `grid-template-columns 0.4s ${EMPHASIZED}`,
+          }}
         >
           {Object.entries(PRESETS).filter(([id]) => id !== 'high_savings').map(([id, p]) => (
             <StrategyCard
@@ -286,10 +284,11 @@ export default function CustomPlanBuilder() {
             onApply={() => setSavedToast(true)}
             onSaveDraft={() => setSavedToast(true)}
           />
-        </Stack>
+        </Box>
 
         {/* KPI strip */}
         <KpiSection
+          planName={activePlanName}
           metrics={metrics}
           featured={featured}
           setFeatured={setFeatured}
@@ -299,26 +298,20 @@ export default function CustomPlanBuilder() {
 
         {/* Commitment coverage section header + term filters */}
         <SectionHeader
-          title="Commitment Coverage"
+          title={(
+            <>
+              {activePlanName} Commitment Coverage
+              {includedTermLabels.length > 0 && (
+                <Box component="span" sx={{ color: 'text.secondary', fontWeight: 400 }}>: {includedTermLabels.join(' · ')}</Box>
+              )}
+            </>
+          )}
           description="Reservable infrastructure grouped by service. Select a term per resource — Guaranteed commitments include Archera's buyback if usage drops; native terms carry full lock-in risk. Uncovered resources are paying full on-demand rates."
         />
         <Stack direction="row" alignItems="center" spacing={1} useFlexGap flexWrap="wrap">
-          <Typography variant="subtitle2" sx={{ textTransform: 'none' }}>Term lengths:</Typography>
+          <Typography variant="subtitle2" sx={{ textTransform: 'none' }}>Comparison term lengths:</Typography>
           {TERM_LENGTHS.map((length) => (
-            <HoverPopover
-              key={length.id}
-              content={(
-                <InfoPopover
-                  eyebrow="Term Length"
-                  title={length.label}
-                  description="Commitments available at this horizon. Toggle to show or hide them across all resources."
-                  rows={length.termIds.map((t) => ({
-                    k: TERMS[t].guaranteed ? 'Guaranteed' : 'Standard',
-                    val: TERMS[t].label,
-                  }))}
-                />
-              )}
-            >
+            <Tooltip key={length.id} title="Show or hide commitments at this term length across all resources.">
               <FormControlLabel
                 control={
                   <Checkbox
@@ -330,26 +323,11 @@ export default function CustomPlanBuilder() {
                 label={<Typography variant="body2">{length.label}</Typography>}
                 sx={{ mr: 0.5 }}
               />
-            </HoverPopover>
+            </Tooltip>
           ))}
           <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
-          <Typography variant="subtitle2" sx={{ textTransform: 'none' }}>Type:</Typography>
-          <HoverPopover
-            content={(
-              <InfoPopover
-                eyebrow="Commitment Type"
-                title="Guaranteed"
-                description="Archera-insured commitments. If usage drops, Archera buys back unused capacity and pays the shortfall — your downside is $0."
-                rows={[
-                  { k: 'Terms', val: '30-day · 1-year' },
-                  { k: 'Exit', val: 'Monthly or guaranteed' },
-                  { k: 'At risk', val: '$0' },
-                  { k: 'Premium', val: 'Only when you save' },
-                  { k: 'Products', val: 'GRI · GSP · GVM · GCUD' },
-                ]}
-              />
-            )}
-          >
+          <Typography variant="subtitle2" sx={{ textTransform: 'none' }}>Comparison types:</Typography>
+          <Tooltip title="Archera-insured commitments. If usage drops, Archera buys back unused capacity and pays the shortfall — your downside is $0.">
             <FormControlLabel
               control={
                 <Checkbox
@@ -361,23 +339,8 @@ export default function CustomPlanBuilder() {
               label={<Typography variant="body2">Guaranteed</Typography>}
               sx={{ mr: 0.5 }}
             />
-          </HoverPopover>
-          <HoverPopover
-            content={(
-              <InfoPopover
-                eyebrow="Commitment Type"
-                title="Standard"
-                description="Native cloud commitments (RI, SP, CUD). No buyback — if usage drops, you keep paying for unused capacity until the term ends."
-                rows={[
-                  { k: 'Terms', val: '1-year · 3-year' },
-                  { k: 'Exit', val: 'Locked for full term' },
-                  { k: 'At risk', val: 'Unused capacity' },
-                  { k: 'Cost', val: 'Free to manage' },
-                  { k: 'Products', val: 'RI · SP · CUD' },
-                ]}
-              />
-            )}
-          >
+          </Tooltip>
+          <Tooltip title="Native cloud commitments (RI, SP, CUD). No buyback — if usage drops, you keep paying for unused capacity until the term ends.">
             <FormControlLabel
               control={
                 <Checkbox
@@ -389,7 +352,7 @@ export default function CustomPlanBuilder() {
               label={<Typography variant="body2">Standard</Typography>}
               sx={{ mr: 0.5 }}
             />
-          </HoverPopover>
+          </Tooltip>
           <Box sx={{ flex: 1 }} />
         </Stack>
 
