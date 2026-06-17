@@ -1,7 +1,7 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import {
   Box, Stack, Typography, IconButton, Tooltip, Popover, Dialog, DialogTitle, DialogContent,
-  DialogActions, Button, Chip, Checkbox, FormControlLabel, Link, Icon as MuiIcon,
+  DialogActions, Button, Chip, Checkbox, FormControlLabel, Link, Divider, Icon as MuiIcon,
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
 import palette from '@archera/design-system/palettes/archera-palette';
@@ -14,6 +14,13 @@ import {
 } from './data';
 
 const kpiById = Object.fromEntries(KPI_CATALOG.map((k) => [k.id, k]));
+
+const GROUP_DESC = {
+  Essentials: 'The core coverage and savings metrics most teams watch day to day.',
+  FinOps: 'Operational efficiency — utilization, waste, and commitment health.',
+  Finance: 'Spend, run-rate, and budget-facing figures for finance partners.',
+  Executive: 'High-level outcomes for leadership and board reporting.',
+};
 
 // ─── Single KPI card ─────────────────────────────────────────────────────────
 // Gradient icon tile + hero value in the header; a divider-topped footer carries
@@ -33,23 +40,29 @@ function KpiFooter({ kpi, v, raw, metrics, accent }) {
   let bars = null;
   let marker = null;
 
+  const noPlan = (metrics.count ?? 0) === 0; // clean slate — nothing to compare against yet
   if (raw) {
     const target = kpi.target ?? null;
     const max = Math.max(raw.current, raw.projected, target ?? 0) || 1;
     const fmt = (display) => (display === '—' ? '—' : `${display}${kpi.unit}`);
-    bars = [
-      { label: 'Now', value: fmt(v.current), frac: raw.current / max, tone: 'muted' },
-      {
+    // "Now" = the current, pre-plan state — flag it: warning normally, error when it
+    // sits far from where the plan lands. Soft 300 tone so it reads as a flag, not an alarm.
+    const gap = Math.abs(raw.projected - raw.current) / max;
+    const nowColor = gap >= 0.4 ? palette.error[300] : palette.warning[300];
+    bars = [{ label: 'Now', value: fmt(v.current), frac: raw.current / max, fill: nowColor }];
+    // Only surface the "With this plan" projection once the plan has something in it.
+    if (!noPlan) {
+      bars.push({
         label: 'With this plan',
         value: fmt(v.projected),
         delta: v.delta,
         note: target != null ? `target ${kpi.targetLabel}` : null,
         frac: raw.projected / max,
         tone: 'fill',
-      },
-    ];
+      });
+    }
     if (target != null) marker = { frac: target / max };
-  } else if (kpi.footer) {
+  } else if (kpi.footer && !noPlan) {
     bars = kpi.footer(metrics).bars ?? null;
   }
 
@@ -78,7 +91,7 @@ function KpiFooter({ kpi, v, raw, metrics, accent }) {
                 width: `${Math.min(100, b.frac * 100)}%`,
                 height: 1,
                 borderRadius: 3,
-                background: fillFor(b.tone),
+                background: b.fill || fillFor(b.tone),
                 transition: 'width 0.4s ease',
               }}
             />
@@ -108,7 +121,9 @@ function popoverRows(kpi, v, metrics) {
   rows.push({ k: `Projected ${keyNoun}`, val: `${v.projected}${unit}` });
   // Raw cards show the delta vs current; footer cards' descriptive delta is
   // already on the card (subtext) and in the caption, so no row for them.
-  if (v.delta && kpi.raw) rows.push({ k: 'vs current', val: v.delta });
+  // The delta IS the difference between the two rows above — labelled by metric and
+  // styled as an accounting "total" line (see KpiPopover).
+  if (v.delta && kpi.raw) rows.push({ k: `Δ ${keyNoun}`, val: v.delta, total: true });
   if (kpi.targetLabel) rows.push({ k: 'Target', val: kpi.targetLabel });
   if (!kpi.raw && kpi.footer) {
     (kpi.footer(metrics).bars || []).forEach((b) => rows.push({ k: b.label, val: b.value }));
@@ -138,10 +153,12 @@ function KpiPopover({ kpi, v, metrics }) {
             direction="row"
             alignItems="center"
             spacing={3}
-            sx={{ py: 0.5, borderBottom: `1px solid ${color.outlineBorder}` }}
+            sx={r.total
+              ? { py: 0.5, mt: 0.25, borderTop: `2px solid ${palette.text.primary}` }
+              : { py: 0.5, borderBottom: `1px solid ${color.outlineBorder}` }}
           >
-            <Typography variant="body2" color="text.secondary" sx={{ flexShrink: 0 }}>{r.k}</Typography>
-            <Typography variant="body2" color="text.primary" sx={{ flex: 1, textAlign: 'right', fontWeight: 600 }}>{r.val}</Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ flexShrink: 0, fontWeight: r.total ? 600 : 400 }}>{r.k}</Typography>
+            <Typography variant="body2" color="text.primary" sx={{ flex: 1, textAlign: 'right', fontWeight: r.total ? 700 : 600 }}>{r.val}</Typography>
           </Stack>
         ))}
       </Box>
@@ -177,17 +194,17 @@ function KpiCard({ kpi, metrics, compact = false, dense = false }) {
   const iconTile = (
     <Box
       sx={{
-        width: compact ? 36 : 44,
-        height: compact ? 36 : 44,
-        borderRadius: 3,
-        background: `linear-gradient(135deg, ${accent.grad[0]}, ${accent.grad[1]})`,
+        width: compact ? 32 : 36,
+        height: compact ? 32 : 36,
+        borderRadius: 2,
+        bgcolor: alpha(accent.main, 0.12),
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
         flexShrink: 0,
       }}
     >
-      <MuiIcon baseClassName="material-icons-outlined" sx={{ fontSize: compact ? 18 : 22, color: palette.neutral.white }}>
+      <MuiIcon baseClassName="material-icons-outlined" sx={{ fontSize: compact ? 18 : 20, color: accent.main }}>
         {kpi.icon}
       </MuiIcon>
     </Box>
@@ -308,7 +325,7 @@ function KpiLibraryDialog({ open, onClose, featured, setFeatured, metrics }) {
     <Dialog open={open} onClose={onClose} maxWidth="lg" fullWidth>
       <DialogTitle>KPI Library</DialogTitle>
       <DialogContent>
-        <Typography variant="body2" color="text.secondary" gutterBottom>
+        <Typography variant="body1" color="text.secondary" gutterBottom>
           Every metric below is live against your current plan selections. Feature up to {MAX_FEATURED} on
           the page — or start from a role preset.
         </Typography>
@@ -361,15 +378,16 @@ function KpiLibraryDialog({ open, onClose, featured, setFeatured, metrics }) {
           )}
         </Stack>
 
-        {KPI_GROUPS.map((group) => (
-          <Box key={group} sx={{ mb: 2.5 }}>
-            <Typography variant="overline" color="text.secondary">{group}</Typography>
+        {KPI_GROUPS.map((group, gi) => (
+          <Box key={group} sx={{ mb: 3 }}>
+            {gi > 0 && <Divider sx={{ mb: 3 }} />}
+            <Typography variant="h3">{group}</Typography>
+            <Typography variant="body1" color="text.secondary" sx={{ mb: 1.5 }}>{GROUP_DESC[group]}</Typography>
             <Box
               sx={{
                 display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
+                gridTemplateColumns: { xs: 'repeat(2, 1fr)', md: 'repeat(4, 1fr)' },
                 gap: 1.5,
-                mt: 0.5,
               }}
             >
               {KPI_CATALOG.filter((k) => k.group === group).map((kpi) => {
@@ -399,7 +417,7 @@ function KpiLibraryDialog({ open, onClose, featured, setFeatured, metrics }) {
                         sx={{ mr: 0, flexShrink: 0 }}
                       />
                     </Stack>
-                    <KpiCard kpi={kpi} metrics={metrics} compact />
+                    <KpiCard kpi={kpi} metrics={metrics} compact dense />
                     <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
                       {kpi.desc}
                     </Typography>
@@ -424,18 +442,37 @@ export default function KpiSection({ planName, metrics, featured, setFeatured, l
   const libOpen = libOpenProp !== undefined ? libOpenProp : libOpenInternal;
   const setLibOpen = setLibOpenProp ?? setLibOpenInternal;
 
+  // Brief transition when the metrics change (plan switch / edit) so the cards
+  // visibly signal they're recomputing. Skip the initial mount.
+  const [updating, setUpdating] = useState(false);
+  const firstRun = useRef(true);
+  useEffect(() => {
+    if (firstRun.current) { firstRun.current = false; return; }
+    setUpdating(true);
+    const t = setTimeout(() => setUpdating(false), 450);
+    return () => clearTimeout(t);
+  }, [metrics]);
+
   return (
     <Stack spacing={1.5}>
-      <Box>
-        <Typography variant="h3" sx={{ mb: 0.5 }}>{planName ? `${planName} KPIs` : 'KPIs'}</Typography>
-        <Typography variant="body1" color="text.secondary">
-          The metrics tracked for this plan —{' '}
-          <Link component="button" type="button" variant="body1" underline="hover" onClick={() => setLibOpen(true)}>
-            view all and configure
-          </Link>
-        </Typography>
-      </Box>
-      <Stack direction="row" spacing={1.5} alignItems="stretch">
+      <Stack direction="row" alignItems="flex-start" spacing={2}>
+        <Box sx={{ flex: 1 }}>
+          <Typography variant="h3" sx={{ mb: 0.5 }}>{planName ? `${planName} KPIs` : 'KPIs'}</Typography>
+          <Typography variant="body1" color="text.secondary">
+            The metrics tracked for this plan —{' '}
+            <Link component="button" type="button" variant="body1" underline="hover" onClick={() => setLibOpen(true)}>
+              view all and configure
+            </Link>
+          </Typography>
+        </Box>
+        {/* Redundant-on-purpose: a configure affordance opposite the text for visibility. */}
+        <Tooltip title="Configure / view all KPIs">
+          <IconButton onClick={() => setLibOpen(true)} sx={{ flexShrink: 0 }}>
+            <MuiIcon baseClassName="material-icons-outlined">tune</MuiIcon>
+          </IconButton>
+        </Tooltip>
+      </Stack>
+      <Stack direction="row" spacing={1.5} alignItems="stretch" sx={{ opacity: updating ? 0.35 : 1, transition: 'opacity 0.25s ease' }}>
         {featured.map((id) => (
           <KpiCard key={id} kpi={kpiById[id]} metrics={metrics} dense={featured.length >= 5} />
         ))}

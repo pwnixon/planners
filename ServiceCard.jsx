@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import {
   Box, Stack, Typography, Tooltip, Chip, Radio, Checkbox, IconButton, Collapse,
-  ToggleButton, ToggleButtonGroup, LinearProgress, Divider, Icon as MuiIcon,
+  ToggleButton, ToggleButtonGroup, LinearProgress, Divider, Alert, Icon as MuiIcon,
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
 import palette from '@archera/design-system/palettes/archera-palette';
@@ -338,8 +338,8 @@ function OptionCardLarge({ service, termId, selected, onSelect, nativeComparison
         value={`${fmtPct(rate)}${nativeComparisonRate ? ` · native 1Y: ${fmtPct(nativeComparisonRate)}` : ''}`}
         sx={{ mt: -0.25 }}
       />
-      <CardRow label="Effective cost" value={`${fmtMoney(cost - savings)}/mo`} />
-      <CardRow label="Breakeven" value={`${Math.round(breakeven)} days`} />
+      <CardRow label="Effective cost" labelVariant="caption" labelColor="text.secondary" valueVariant="caption" value={`${fmtMoney(cost - savings)}/mo`} />
+      <CardRow label="Breakeven" labelVariant="caption" labelColor="text.secondary" valueVariant="caption" value={`${Math.round(breakeven)} days`} />
       <Divider />
       <Typography
         variant="caption"
@@ -586,7 +586,13 @@ function HeaderMetricCard({ icon, label, value, grad, valueColor }) {
 // ─── Service card ────────────────────────────────────────────────────────────
 
 export default function ServiceCard({ service, selections, setSelection, setServiceTerm, visibleTermIds }) {
-  const [view, setView] = useState(service.serverless ? 'service' : 'instance');
+  // Default to By Service when every instance shares one term (uniform plan, e.g.
+  // all 30-day); drop to By Instance when the service starts out mixed.
+  const initialUniform = (() => {
+    const ts = service.instances.map((i) => selections[i.id]).filter(Boolean);
+    return ts.length === service.instances.length && ts.every((t) => t === ts[0]);
+  })();
+  const [view, setView] = useState(service.serverless || initialUniform ? 'service' : 'instance');
   const m = serviceMetrics(service, selections);
 
   // The term that is selected on every included instance (for By Service radio state)
@@ -716,6 +722,14 @@ export default function ServiceCard({ service, selections, setSelection, setServ
 
       {/* Body */}
       {view === 'service' ? (
+        <>
+        {!uniformTerm && !noneIncluded && (
+          <Box sx={{ px: 2, pb: 1 }}>
+            <Alert severity="info">
+              There are multiple contract types selected by instance. A selection here will update all of those to the same commitment type.
+            </Alert>
+          </Box>
+        )}
         <Stack direction="row" spacing={1.5} sx={{ p: 2, pt: 0.5 }} useFlexGap flexWrap="wrap">
           <OnDemandCardLarge service={service} visibleTermIds={visibleTermIds} />
           {visibleTermIds.map((t) => (
@@ -729,6 +743,7 @@ export default function ServiceCard({ service, selections, setSelection, setServ
             />
           ))}
         </Stack>
+        </>
       ) : (
         <Box sx={{ pb: 1 }}>
           <InstanceTableHeader visibleTermIds={visibleTermIds} />
