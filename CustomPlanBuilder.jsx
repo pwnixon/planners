@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Box, Stack, Typography, Button, Chip, Checkbox, FormControlLabel, Tooltip,
-  Snackbar, Alert, Divider, Dialog, DialogTitle, DialogContent, DialogActions, Radio, RadioGroup,
+  Snackbar, Alert, Divider, Dialog, DialogTitle, DialogContent, DialogActions,
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
 import AppShell from '@archera/design-system/AppShell';
@@ -206,7 +206,6 @@ export default function CustomPlanBuilder() {
   const [kpiLibOpen, setKpiLibOpen] = useState(false);
   const [savedToast, setSavedToast] = useState(false);
   const [customModalOpen, setCustomModalOpen] = useState(false);
-  const [customStart, setCustomStart] = useState('recommended');
   // #1 — fixed condensed header once the plan + KPI sections scroll out of view.
   const [stuck, setStuck] = useState(false);
   const kpiRef = useRef(null);
@@ -283,10 +282,10 @@ export default function CustomPlanBuilder() {
     return () => scroller.removeEventListener('scroll', onScroll);
   }, []);
 
-  // Custom card → modal: pick a starting point, then customize from there.
-  const startCustom = () => {
-    if (customStart === 'clean') clearAll();           // deselect everything → KPIs zero out
-    else setSelections(applyPreset(customStart));      // seed from a plan, then edits make it custom
+  // Custom card → modal. The primary path is to start from a plan and edit (which
+  // becomes a custom plan automatically); this action builds a blank plan instead.
+  const startBlank = () => {
+    clearAll();                  // nothing preselected → KPIs zero until the user selects
     setCustomModalOpen(false);
   };
 
@@ -469,33 +468,16 @@ export default function CustomPlanBuilder() {
       <Dialog open={customModalOpen} onClose={() => setCustomModalOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle>Start your custom plan</DialogTitle>
         <DialogContent>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            We recommend starting from a plan, then customizing from there — it's faster than building from nothing.
+          <Typography variant="body1" color="text.secondary">
+            The quickest path is to start from a plan — pick Recommended or Balanced, then adjust any
+            commitment; your edits automatically become a custom plan. Prefer a clean start? Create a
+            blank plan with nothing preselected and build your coverage from the ground up, by service
+            or by instance.
           </Typography>
-          <RadioGroup value={customStart} onChange={(e) => setCustomStart(e.target.value)}>
-            {[
-              { id: 'recommended', label: 'Start from the Recommended plan', desc: '30-day Guaranteed Commitments on every coverable resource.' },
-              { id: 'balanced', label: 'Start from the Balanced plan', desc: '1-year Guaranteed on stable workloads, 30-day everywhere else.' },
-              { id: 'clean', label: 'Start from a clean slate', desc: 'Nothing selected — build the plan up yourself. KPIs reset to zero until you start selecting.' },
-            ].map((o) => (
-              <FormControlLabel
-                key={o.id}
-                value={o.id}
-                control={<Radio />}
-                sx={{ alignItems: 'flex-start', mb: 1, mr: 0 }}
-                label={(
-                  <Box sx={{ py: 0.5 }}>
-                    <Typography variant="body1">{o.label}</Typography>
-                    <Typography variant="body2" color="text.secondary">{o.desc}</Typography>
-                  </Box>
-                )}
-              />
-            ))}
-          </RadioGroup>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setCustomModalOpen(false)}>Cancel</Button>
-          <Button variant="contained" onClick={startCustom}>Start customizing</Button>
+          <Button variant="contained" onClick={startBlank}>Create from a Blank Plan</Button>
         </DialogActions>
       </Dialog>
 
