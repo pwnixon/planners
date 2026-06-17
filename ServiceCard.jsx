@@ -254,7 +254,7 @@ function LargeCardFrame({ selected, borderColor, bg, onSelect, title, titleColor
         flex: 1,
         minWidth: 200,
         border: `1px solid ${borderColor}`,
-        borderRadius: 2,
+        borderRadius: 1,
         p: 1.625,
         cursor: onSelect ? 'pointer' : 'default',
         bgcolor: bg,
@@ -551,7 +551,7 @@ function HeaderMetricCard({ icon, label, value, grad, valueColor }) {
       alignItems="center"
       sx={{
         border: `1px solid ${color.outlineBorder}`,
-        borderRadius: 4,
+        borderRadius: 1,
         px: 2,
         py: 1.25,
         bgcolor: palette.surface,
@@ -614,7 +614,7 @@ export default function ServiceCard({ service, selections, setSelection, setServ
   })();
 
   return (
-    <Box sx={{ bgcolor: palette.surface, border: `1px solid ${color.outlineBorder}`, borderRadius: 2 }}>
+    <Box sx={{ bgcolor: palette.surface, border: `1px solid ${color.outlineBorder}`, borderRadius: 1 }}>
       {/* Header */}
       <Stack direction="row" alignItems="center" spacing={2} sx={{ p: 2, opacity: noneIncluded ? 0.6 : 1 }}>
         <Tooltip

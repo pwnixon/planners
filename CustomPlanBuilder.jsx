@@ -72,7 +72,7 @@ function StrategyCard({ title, desc, active, isCustom, onSelect, onApply, onSave
         display: 'flex',
         flexDirection: 'column',
         overflow: 'hidden',
-        borderRadius: 2,
+        borderRadius: 1,
         bgcolor: palette.surface,
         border: `1px solid ${active ? palette.brandPrimary[500] : color.outlineBorder}`,
         cursor: clickable ? 'pointer' : 'default',
