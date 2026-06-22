@@ -9,10 +9,13 @@ import palette from '@archera/design-system/palettes/archera-palette';
 import { color, semantic, elevation } from '@archera/design-system/tokens';
 import KpiSection from './KpiSection';
 import ServiceCard from './ServiceCard';
+import CommitmentIcon from './CommitmentIcon';
+import { SERVICE_ICON } from './serviceIcons';
 import BriefingOverlay from './BriefingOverlay';
 import {
   SERVICES, TERMS, TERM_ORDER, TERM_LENGTHS, PRESETS, defaultSelections, applyPreset, detectPlan,
-  pageMetrics, DEFAULT_FEATURED, fmtMoney, fmtPct, optionFor, KPI_CATALOG,
+  pageMetrics, DEFAULT_FEATURED, fmtMoney, fmtPct, KPI_CATALOG,
+  serviceCommitments, aggregateOption, commitmentTerm, planCommitmentCount,
 } from './data';
 
 const kpiById = Object.fromEntries(KPI_CATALOG.map((k) => [k.id, k]));
@@ -42,163 +45,39 @@ function deriveVisibleTerms(lengths, types) {
   });
 }
 
-// ─── Strategy plan card ──────────────────────────────────────────────────────
-// Each predefined plan (and Custom) is a first-class object: apply it or save it.
-// Active plan is derived from selections — see detectPlan in data.js.
-//
-// The active card grows to 2× the inactive ones and swaps to a dark brand
-// gradient with white type; inactive cards sit on a subtle light gradient with
-// dark type. On selection, everything cross-fades together (the standard
-// material-emphasis curve). Notes on the moving parts:
-//   • width      — animated via flex-grow (2 vs 1); flexBasis:0 keeps the ratio exact
-//   • background — two stacked gradient layers; the dark one fades in (gradients
-//                  can't be tweened directly, so we cross-fade opacity instead)
-//   • type       — title size + text colors transition; logo cross-fades black↔white
-//   • chrome     — the Active chip fades/scales in, padding & desc indent ease in
-// Per-card active gradient over a dark brand base — each card favors its own hue,
-// with a matching status color (Active chip + border + Apply button).
-const bp = palette.brandPrimary;
-const bt = palette.brandTertiary;  // pink / salmon
-const bs = palette.brandSecondary; // light blue / cyan
-const CARD_TONE = {
-  recommended: { grad: `linear-gradient(115deg, ${bp[900]} 0%, ${bp[800]} 32%, ${bp[600]} 78%, ${bp[500]} 100%)`, status: bp[500], statusDark: bp[700] },
-  balanced:    { grad: `linear-gradient(115deg, ${bp[900]} 0%, ${bp[900]} 24%, ${bt[800]} 66%, ${bt[600]} 100%)`, status: bt[600], statusDark: bt[800] },
-  custom:      { grad: `linear-gradient(115deg, ${bp[900]} 0%, ${bp[800]} 30%, ${bs[800]} 70%, ${bs[600]} 100%)`, status: bs[700], statusDark: bs[800] },
-};
-const cardLightGradient = `linear-gradient(160deg, ${palette.surface} 0%, ${alpha(palette.brandPrimary[50], 0.45)} 100%)`;
-const EMPHASIZED = 'cubic-bezier(0.4, 0, 0.2, 1)';
-const PLAN_ACTION_WIDTH = 154; // footer buttons are a fixed width per the Figma spec
-
-function StrategyCard({ title, desc, active, isCustom, tone = 'recommended', onSelect, onApply, onSaveDraft }) {
-  const clickable = !active && Boolean(onSelect);
-  const t = CARD_TONE[tone] || CARD_TONE.recommended;
-  return (
-    <Box
-      onClick={clickable ? onSelect : undefined} // tab click loads the plan into the builder
-      sx={{
-        minWidth: 0, // grid track owns the width; allow it to shrink below content
-        // Lock a constant height (card already clips overflow) so re-wrapping the
-        // description at different widths/sizes can't change the card height —
-        // text reflow stays contained and the row never shifts.
-        height: 208,
-        display: 'flex',
-        flexDirection: 'column',
-        overflow: 'hidden',
-        borderRadius: 1,
-        bgcolor: palette.surface,
-        border: `1px solid ${active ? t.status : color.outlineBorder}`,
-        cursor: clickable ? 'pointer' : 'default',
-        transition: 'border-color 0.3s ease, box-shadow 0.2s ease',
-        '&:hover': { boxShadow: elevation[4] },
-        '&:hover .card-hover': { opacity: 1 },
-      }}
-    >
-      {/* BODY — gradient (active) or light (inactive); footer below stays white */}
-      <Box
-        sx={{
-          position: 'relative',
-          flex: 1,
-          overflow: 'hidden',
-          px: 3,
-          pt: 4,
-          pb: active ? 4 : 2.5,
-        }}
-      >
-        <Box sx={{ position: 'absolute', inset: 0, background: cardLightGradient }} />
-        <Box sx={{ position: 'absolute', inset: 0, background: t.grad, opacity: active ? 1 : 0, transition: `opacity 0.4s ${EMPHASIZED}` }} />
-        {clickable && (
-          <Box className="card-hover" sx={{ position: 'absolute', inset: 0, bgcolor: alpha(palette.neutral.black, 0.04), opacity: 0, transition: 'opacity 0.2s ease' }} />
-        )}
-
-        <Box sx={{ position: 'relative', zIndex: 1 }}>
-          <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: active ? 0.25 : 1 }}>
-            {!isCustom && (
-              <Box
-                component="img"
-                src={archeraMarkBlackSvg}
-                alt=""
-                sx={{ width: 27, height: 24, flexShrink: 0, opacity: active ? 1 : 0.25, filter: active ? 'brightness(0) invert(1)' : 'none', transition: 'opacity 0.3s ease, filter 0.3s ease' }}
-              />
-            )}
-            <Typography
-              variant="h4"
-              sx={{
-                flex: 1,
-                color: active ? palette.neutral.white : palette.text.primary,
-                fontSize: (theme) => (active ? theme.typography.h2.fontSize : theme.typography.h4.fontSize),
-                transition: 'color 0.3s ease',
-              }}
-            >
-              {/\bplan$/i.test(title) ? title : `${title} Plan`}
-            </Typography>
-          </Stack>
-
-          <Typography
-            variant="body2"
-            sx={{
-              pl: active && !isCustom ? '36px' : 0,
-              fontSize: (theme) => (active ? theme.typography.body3.fontSize : theme.typography.body1.fontSize),
-              lineHeight: (theme) => (active ? theme.typography.body3.lineHeight : theme.typography.body1.lineHeight),
-              color: active ? palette.neutral[300] : palette.text.secondary,
-              transition: 'color 0.3s ease',
-            }}
-          >
-            {desc}
-          </Typography>
-        </Box>
-      </Box>
-
-      {/* FOOTER — white bar with status chip + action(s); only on the active plan.
-          Inactive cards are just selectable tabs (click the body to load them). */}
-      {active && (
-        <Box sx={{ bgcolor: palette.surface, p: 1.5 }}>
-          <Stack direction="row" alignItems="center" spacing={1}>
-            <Chip size="small" label={<Typography variant="micro" sx={{ color: palette.neutral.white }}>Active</Typography>} sx={{ flexShrink: 0, bgcolor: t.status }} />
-            <Box sx={{ flex: 1 }} />
-            {isCustom && (
-              <Tooltip title="Saves a draft — nothing is purchased until you execute">
-                <span style={{ display: 'flex' }}>
-                  <Button size="large" variant="outlined" onClick={(e) => { e.stopPropagation(); onSaveDraft(); }} sx={{ width: PLAN_ACTION_WIDTH }}>
-                    Save as draft
-                  </Button>
-                </span>
-              </Tooltip>
-            )}
-            <Button
-              size="large"
-              variant="contained"
-              onClick={(e) => { e.stopPropagation(); onApply(); }}
-              sx={{ width: PLAN_ACTION_WIDTH, bgcolor: t.status, '&:hover': { bgcolor: t.statusDark } }}
-            >
-              Review &amp; apply
-            </Button>
-          </Stack>
-        </Box>
-      )}
-    </Box>
-  );
-}
-
-import archeraMarkBlackSvg from './assets/archera-mark-black.svg';
 
 // ─── Review & apply modal ────────────────────────────────────────────────────
 // Plan summary (savings / coverage / count) over a condensed line-item table,
 // grouped by service.
 function ReviewApplyModal({ open, onClose, onConfirm, planName, metrics, selections }) {
   const netSavings = metrics.savingsMo.projected - metrics.savingsMo.current;
-  const termLengthLabel = (termId) => (TERM_LENGTHS.find((l) => l.termIds.includes(termId))?.label ?? '—');
   const groups = SERVICES
     .map((svc) => ({
       service: svc,
-      rows: svc.instances.filter((i) => selections[i.id]).map((i) => {
-        const termId = selections[i.id];
-        const opt = optionFor(i, termId);
-        return { id: i.id, name: i.name, type: TERMS[termId].guaranteed ? 'Guaranteed' : 'Standard', term: termLengthLabel(termId), cost: opt.commitCostMo, savings: opt.savingsMo };
-      }),
+      rows: serviceCommitments(svc)
+        .map((c) => {
+          const termId = commitmentTerm(c, selections);
+          if (!termId || termId === 'mixed') return null;
+          const opt = aggregateOption(c.instances, termId);
+          return {
+            key: c.key,
+            vehicle: c.vehicle,
+            scope: c.scope,
+            kind: c.kind,
+            termId,
+            term: TERMS[termId].label,
+            guaranteed: TERMS[termId].guaranteed,
+            count: c.instances.length,
+            cost: opt.commitCostMo,
+            savings: opt.savingsMo,
+          };
+        })
+        .filter(Boolean),
     }))
     .filter((g) => g.rows.length > 0);
 
-  const W = { type: 132, term: 90, cost: 104, sav: 128 };
+  const commitmentCount = groups.reduce((a, g) => a + g.rows.length, 0);
+  const W = { term: 136, res: 80, cost: 100, sav: 124 };
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
@@ -215,14 +94,14 @@ function ReviewApplyModal({ open, onClose, onConfirm, planName, metrics, selecti
           </Box>
           <Box>
             <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>Commitments</Typography>
-            <Typography variant="h4">{metrics.count}</Typography>
+            <Typography variant="h4">{commitmentCount}</Typography>
           </Box>
         </Stack>
 
         <Stack direction="row" spacing={2} alignItems="flex-end" sx={{ pb: 1, borderBottom: `1px solid ${color.outlineBorder}` }}>
-          <Typography variant="h6" color="text.secondary" sx={{ flex: 1 }}>Resource</Typography>
-          <Typography variant="h6" color="text.secondary" sx={{ width: W.type, flexShrink: 0 }}>Commitment type</Typography>
+          <Typography variant="h6" color="text.secondary" sx={{ flex: 1 }}>Commitment</Typography>
           <Typography variant="h6" color="text.secondary" sx={{ width: W.term, flexShrink: 0 }}>Term</Typography>
+          <Typography variant="h6" color="text.secondary" sx={{ width: W.res, flexShrink: 0, textAlign: 'right' }}>Resources</Typography>
           <Typography variant="h6" color="text.secondary" sx={{ width: W.cost, flexShrink: 0, textAlign: 'right' }}>Cost/mo</Typography>
           <Typography variant="h6" color="text.secondary" sx={{ width: W.sav, flexShrink: 0, textAlign: 'right' }}>Net savings/mo</Typography>
         </Stack>
@@ -233,12 +112,18 @@ function ReviewApplyModal({ open, onClose, onConfirm, planName, metrics, selecti
               {g.service.name}
             </Typography>
             {g.rows.map((r, idx) => (
-              <Stack key={r.id} direction="row" spacing={2} alignItems="center" sx={{ py: 1, borderTop: idx ? `1px solid ${color.divider}` : 'none' }}>
-                <Typography variant="body2" sx={{ flex: 1 }}>{r.name}</Typography>
-                <Box sx={{ width: W.type, flexShrink: 0 }}>
-                  <Chip size="small" variant="outlined" color={r.type === 'Guaranteed' ? 'secondary' : 'default'} label={<Typography variant="micro">{r.type}</Typography>} />
+              <Stack key={r.key} direction="row" spacing={2} alignItems="center" sx={{ py: 1, borderTop: idx ? `1px solid ${color.divider}` : 'none' }}>
+                <Box sx={{ flex: 1, minWidth: 0 }}>
+                  <Stack direction="row" alignItems="center" spacing={1}>
+                    <CommitmentIcon kind={r.kind} infraSrc={SERVICE_ICON[g.service.id]} termId={r.termId} size={24} />
+                    <Typography variant="body2" sx={{ fontWeight: 500 }}>{r.vehicle}</Typography>
+                  </Stack>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', pl: '32px' }}>{r.scope}</Typography>
                 </Box>
-                <Typography variant="body2" sx={{ width: W.term, flexShrink: 0 }}>{r.term}</Typography>
+                <Box sx={{ width: W.term, flexShrink: 0 }}>
+                  <Chip size="small" variant="outlined" color={r.guaranteed ? 'secondary' : 'default'} label={<Typography variant="micro">{r.term}</Typography>} />
+                </Box>
+                <Typography variant="body2" sx={{ width: W.res, flexShrink: 0, textAlign: 'right' }}>{r.count}</Typography>
                 <Typography variant="body2" sx={{ width: W.cost, flexShrink: 0, textAlign: 'right' }}>{fmtMoney(r.cost)}/mo</Typography>
                 <Typography variant="body2" sx={{ width: W.sav, flexShrink: 0, textAlign: 'right', fontWeight: 600, color: semantic.success.dark }}>+{fmtMoney(r.savings)}/mo</Typography>
               </Stack>
@@ -257,7 +142,7 @@ function ReviewApplyModal({ open, onClose, onConfirm, planName, metrics, selecti
   );
 }
 
-export default function CustomPlanBuilder() {
+export default function BuilderView() {
   const demo = new URLSearchParams(window.location.search).get('demo');
   const [briefing, setBriefing] = useState(demo === 'briefing'); // has_actioned_plan === false
   const [selections, setSelections] = useState(defaultSelections); // prefilled: nightly Recommended plan
@@ -283,6 +168,7 @@ export default function CustomPlanBuilder() {
   const [savedToast, setSavedToast] = useState(false);
   const [customModalOpen, setCustomModalOpen] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
+  const [customToast, setCustomToast] = useState(false);
   // #1 — fixed condensed header once the plan + KPI sections scroll out of view.
   const [stuck, setStuck] = useState(false);
   const kpiRef = useRef(null);
@@ -311,8 +197,21 @@ export default function CustomPlanBuilder() {
     }
   }, [activePlan, selections]);
 
-  const setSelection = (instanceId, termId) => {
-    setSelections((s) => ({ ...s, [instanceId]: termId }));
+  // Info snackbar the moment edits turn a predefined plan into a custom plan.
+  const prevPlan = useRef(activePlan);
+  useEffect(() => {
+    if (activePlan === 'custom' && prevPlan.current !== 'custom') setCustomToast(true);
+    prevPlan.current = activePlan;
+  }, [activePlan]);
+
+  // A commitment (line item) is the unit of term selection — set the term on the
+  // whole block of resources it covers at once.
+  const setCommitmentTerm = (instanceIds, termId) => {
+    setSelections((s) => {
+      const next = { ...s };
+      instanceIds.forEach((id) => { next[id] = termId; });
+      return next;
+    });
   };
 
   const setServiceTerm = (serviceId, termId) => {
@@ -325,13 +224,11 @@ export default function CustomPlanBuilder() {
   };
 
   const handleApply = (presetId) => {
-    const sel = applyPreset(presetId);
-    setSelections(sel);
-    // #2 — pre-select to match the plan: make sure every term the plan uses is a
-    // visible comparison column, so each panel shows the plan's selection.
-    const used = new Set(Object.values(sel).filter(Boolean));
-    const usedLengths = TERM_LENGTHS.filter((l) => l.termIds.some((t) => used.has(t))).map((l) => l.id);
-    setVisibleLengths((v) => Array.from(new Set([...v, ...usedLengths])));
+    // Changing plans resets to that plan's defaults: the commitment selections AND
+    // the comparison view (term-length columns + types) return to the defaults.
+    setSelections(applyPreset(presetId));
+    setVisibleLengths(DEFAULT_VISIBLE_LENGTHS);
+    setVisibleTypes(['guaranteed', 'standard']);
   };
 
   const clearAll = () => {
@@ -403,44 +300,6 @@ export default function CustomPlanBuilder() {
         </Box>
 
         <Stack spacing={6} sx={{ width: '100%' }}>
-        {/* Plan tabs — predefined strategies + the custom plan; active tab opens into the page */}
-        {/* Grid (not flex): Chrome interpolates grid-template-columns fr units, so
-            the active card's 2fr↔1fr width change animates smoothly — flex-grow
-            does not animate and was snapping. */}
-        <Box
-          sx={{
-            display: 'grid',
-            gridTemplateColumns: [...Object.keys(PRESETS).filter((k) => k !== 'high_savings'), 'custom']
-              .map((id) => (activePlan === id ? '2fr' : '1fr'))
-              .join(' '),
-            gap: 1.5,
-            alignItems: 'stretch',
-            transition: `grid-template-columns 0.4s ${EMPHASIZED}`,
-          }}
-        >
-          {Object.entries(PRESETS).filter(([id]) => id !== 'high_savings').map(([id, p]) => (
-            <StrategyCard
-              key={id}
-              title={p.label}
-              desc={p.desc}
-              tone={id}
-              active={activePlan === id}
-              onSelect={() => handleApply(id)}
-              onApply={() => setReviewOpen(true)}
-            />
-          ))}
-          <StrategyCard
-            title="Custom Plan"
-            desc="Start from any plan — your changes are collected here as a custom plan. Revert your changes and the original plan takes back over."
-            active={activePlan === 'custom'}
-            isCustom
-            tone="custom"
-            onSelect={() => setCustomModalOpen(true)}
-            onApply={() => setReviewOpen(true)}
-            onSaveDraft={() => setSavedToast(true)}
-          />
-        </Box>
-
         {/* KPI strip (ref tracks when it scrolls past, to toggle the sticky header) */}
         <Box ref={kpiRef}>
           <KpiSection
@@ -465,7 +324,7 @@ export default function CustomPlanBuilder() {
               )}
             </>
           )}
-          description="Reservable infrastructure grouped by service. Select a term per resource — Guaranteed commitments include Archera's buyback if usage drops; native terms carry full lock-in risk. Uncovered resources are paying full on-demand rates."
+          description="Reservable infrastructure grouped into commitments by service. Pick a term per commitment — Guaranteed commitments include Archera's buyback if usage drops; native terms carry full lock-in risk. Expand a commitment to see the resources it covers. Uncovered resources are paying full on-demand rates."
         />
         <Stack direction="row" alignItems="center" spacing={1} useFlexGap flexWrap="wrap">
           <Typography variant="subtitle2" sx={{ textTransform: 'none' }}>Comparison term lengths:</Typography>
@@ -521,7 +380,7 @@ export default function CustomPlanBuilder() {
             key={s.id}
             service={s}
             selections={selections}
-            setSelection={setSelection}
+            setCommitmentTerm={setCommitmentTerm}
             setServiceTerm={setServiceTerm}
             visibleTermIds={visibleTermIds}
           />
@@ -548,8 +407,8 @@ export default function CustomPlanBuilder() {
           <Typography variant="body1" color="text.secondary">
             The quickest path is to start from a plan — pick Recommended or Balanced, then adjust any
             commitment; your edits automatically become a custom plan. Prefer a clean start? Create a
-            blank plan with nothing preselected and build your coverage from the ground up, by service
-            or by instance.
+            blank plan with nothing preselected and build your coverage from the ground up, one
+            commitment at a time.
           </Typography>
         </DialogContent>
         <DialogActions>
@@ -574,8 +433,19 @@ export default function CustomPlanBuilder() {
         anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
       >
         <Alert severity="success" onClose={() => setSavedToast(false)}>
-          Draft saved — {metrics.count} commitments, +{fmtMoney(metrics.savingsMo.projected - metrics.savingsMo.current)}/mo
-          projected savings. Nothing is purchased until you execute.
+          Draft saved — {planCommitmentCount(selections)} commitments, +{fmtMoney(metrics.savingsMo.projected - metrics.savingsMo.current)}/mo
+          projected net savings. Nothing is purchased until you execute.
+        </Alert>
+      </Snackbar>
+
+      <Snackbar
+        open={customToast}
+        autoHideDuration={5000}
+        onClose={() => setCustomToast(false)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert severity="info" onClose={() => setCustomToast(false)}>
+          You&apos;re now editing a Custom Plan — your changes are collected here. Revert them to restore the original plan.
         </Alert>
       </Snackbar>
     </AppShell>

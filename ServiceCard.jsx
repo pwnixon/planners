@@ -1,13 +1,21 @@
 import { useState, useEffect } from 'react';
 import {
-  Box, Stack, Typography, Tooltip, Chip, Radio, Checkbox, IconButton, Collapse,
-  ToggleButton, ToggleButtonGroup, LinearProgress, Divider, Alert, Icon as MuiIcon,
+  Box, Stack, Typography, Tooltip, Checkbox, IconButton, Collapse,
+  Divider, Link, ToggleButton, ToggleButtonGroup,
+  TextField, InputAdornment, Pagination, Icon as MuiIcon,
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
 import palette from '@archera/design-system/palettes/archera-palette';
 import { color, semantic, elevation } from '@archera/design-system/tokens';
 import InfoPopover from './InfoPopover';
 import HoverPopover from './HoverPopover';
+import CommitmentIcon, { iconStyleFor } from './CommitmentIcon';
+import { SERVICE_ICON } from './serviceIcons';
+import {
+  TERMS, optionFor, serviceMetrics, sparkPoints, fmtMoney, fmtPct,
+  serviceCommitments, aggregateOption, commitmentTerm, commitmentDetail, resourceDetail,
+  resourceMatches, COVERAGE_TARGET,
+} from './data';
 
 // Selection highlight — branded alert bg: brand-primary light at 20% opacity
 const selectedBg = alpha(palette.brandPrimary[50], 0.2);
@@ -16,73 +24,37 @@ const selectedBgNative = alpha(palette.warning[50], 0.2);
 // On-demand baseline — borderless error tint: the costly state, not an option
 const onDemandBg = alpha(semantic.error.light, 0.2);
 
-// By Instance column widths — header row mirrors InstanceRow exactly
-// Term columns flex to fill the space freed by the removed usage column, but cap
-// at optionMax so they don't sprawl when only one or two term types are selected.
-const COL = { checkbox: 42, info: 220, option: 184, optionMax: 264 };
+// Column geometry — shared by the header, commitment rows, and footer so the
+// term-comparison cells line up. `lead` holds the checkbox + drill chevron.
+const COL = { lead: 76, info: 300, option: 168, optionMax: 230 };
 
 // CSP brand colors — cloud-brand, not in Archera palette (mirrors AppShell PROVIDER constants)
 // text: brand orange darkened for readability on light backgrounds
 const CSP = { icon: '#FF9900', bg: '#fff3e0', text: '#C77700' }; // AWS
-import {
-  TERMS, TERM_ORDER, optionFor, serviceMetrics, sparkPoints,
-  fmtMoney, fmtPct,
-} from './data';
 
-// ─── Usage: inline read-out under the resource info + detailed hover chart ───
+// ─── Usage read-out (read-only, neutral context) ─────────────────────────────
+// Stability is informational only — it describes the usage shape, it does NOT
+// recommend a term. The term decision stays the user's call. (Per-resource usage
+// renders as the Historical Usage sparkline in the drill-down table below.)
 
-// Detailed usage-over-period chart shown on hover (richer than the old inline
-// sparkline): filled area, gridlines, period axis, and the stable/variable read.
-function UsageChart({ instance }) {
-  const pts = sparkPoints(instance);
-  const w = 256;
-  const h = 88;
-  const pad = 4;
-  const x = (i) => ((i / (pts.length - 1)) * w).toFixed(1);
-  const y = (p) => (h - pad - p * (h - pad * 2)).toFixed(1);
-  const line = pts.map((p, i) => `${i ? 'L' : 'M'}${x(i)},${y(p)}`).join(' ');
-  const area = `${line} L${w},${h} L0,${h} Z`;
-  const stroke = instance.stable ? semantic.success.main : semantic.warning.main;
-  return (
-    <Box sx={{ p: 2, width: 288 }}>
-      <Typography variant="micro" color="text.secondary" sx={{ display: 'block', mb: 0.25 }}>Usage · last 90 days</Typography>
-      <Typography variant="h6" color="text.primary" sx={{ mb: 1 }}>
-        {instance.stable ? 'Stable usage' : 'Variable usage'}
-      </Typography>
-      <svg width="100%" height={h} viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" style={{ display: 'block' }}>
-        {[0.25, 0.5, 0.75].map((g) => (
-          <line key={g} x1="0" x2={w} y1={y(g)} y2={y(g)} stroke={color.divider} strokeWidth="1" vectorEffect="non-scaling-stroke" />
-        ))}
-        <path d={area} fill={alpha(stroke, 0.15)} />
-        <path d={line} fill="none" stroke={stroke} strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
-      </svg>
-      <Stack direction="row" justifyContent="space-between" sx={{ mt: 0.25 }}>
-        <Typography variant="caption" color="text.secondary">90d ago</Typography>
-        <Typography variant="caption" color="text.secondary">today</Typography>
-      </Stack>
-      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
-        {instance.stable
-          ? 'Ran continuously for 90+ days — longer commitment terms are safe here.'
-          : 'Demand fluctuates — shorter Guaranteed terms protect you if it drops.'}
-      </Typography>
-    </Box>
-  );
+// Commitment-level usage summary — neutral roll-up of the block's resources.
+function commitmentUsage(instances) {
+  const stable = instances.filter((i) => i.stable).length;
+  if (stable === instances.length) return { label: 'Stable usage', tone: semantic.success.main };
+  if (stable === 0) return { label: 'Variable usage', tone: semantic.warning.main };
+  return { label: `Mixed usage · ${stable}/${instances.length} stable`, tone: palette.text.secondary };
 }
 
-// Inline read-out placed under the resource info; hover for the full chart.
-function UsageIndicator({ instance }) {
-  const tone = instance.stable ? semantic.success.main : semantic.warning.main;
-  return (
-    <HoverPopover content={<UsageChart instance={instance} />}>
-      <Stack direction="row" alignItems="center" spacing={0.5} sx={{ mt: 0.5, width: 'fit-content', cursor: 'default' }}>
-        <MuiIcon baseClassName="material-icons-outlined" sx={{ fontSize: 14, color: tone }}>show_chart</MuiIcon>
-        <Typography variant="caption" color="text.secondary">Usage</Typography>
-        <Typography variant="caption" sx={{ color: tone, fontWeight: 500 }}>
-          · {instance.stable ? 'Stable' : 'Variable'}
-        </Typography>
-      </Stack>
-    </HoverPopover>
-  );
+// Commitment title text + color by guarantee style (from the selected term):
+//   release  → brand-primary 700, keeps "Guaranteed"
+//   rebate   → success 700, keeps "Guaranteed"
+//   standard → text.primary, swaps "Guaranteed" → "Standard"
+//   excluded → text.primary, unchanged
+function commitmentTitle(vehicle, style) {
+  if (style === 'release') return { text: vehicle, color: palette.brandPrimary[700] };
+  if (style === 'rebate') return { text: vehicle, color: semantic.success.dark };
+  if (style === 'standard') return { text: vehicle.replace(/Guaranteed/g, 'Standard'), color: palette.text.primary };
+  return { text: vehicle, color: palette.text.primary };
 }
 
 // ─── Risk line: the counterweight to the savings number ─────────────────────
@@ -95,34 +67,29 @@ function riskParts(opt) {
   return { left: term.lockLabel, right: `${fmtMoney(opt.atRisk)} at risk` };
 }
 
-function riskLine(opt) {
-  const p = riskParts(opt);
-  return `${p.left} · ${p.right}`;
-}
-
-function optionTooltip(instance, opt) {
+function optionTooltip(commitment, opt) {
   const term = TERMS[opt.termId];
   const risk = riskParts(opt);
   return (
     <InfoPopover
       eyebrow={term.guaranteed ? 'Guaranteed' : 'Standard'}
-      title={`${term.label} Commitment`}
+      title={`${term.label} · ${commitment.vehicle || commitment.name}`}
       description={term.lockDetail}
       rows={[
-        { k: 'Savings', val: `+${fmtMoney(opt.savingsMo)}/mo` },
+        { k: 'Net Savings', val: `+${fmtMoney(opt.savingsMo)}/mo` },
         { k: `Savings rate${term.guaranteed ? ' (net)' : ''}`, val: fmtPct(opt.rate) },
         { k: 'Cost', val: `${fmtMoney(opt.commitCostMo)}/mo` },
         { k: 'Breakeven', val: `${Math.round(opt.breakevenDays)} days` },
+        { k: 'Resources covered', val: `${commitment.instances.length}` },
         { k: 'Exit', val: risk.left },
-        { k: 'At risk', val: term.guaranteed ? '$0' : fmtMoney(opt.atRisk) },
+        { k: 'At risk', val: opt.guaranteed ? '$0' : fmtMoney(opt.atRisk) },
       ]}
     />
   );
 }
 
-// ─── Compact option card (By Instance table) ─────────────────────────────────
+// ─── Compact option cell (term-comparison columns) ───────────────────────────
 
-// Key/value row for the compact cells — mirrors the service-card CardRow
 function CellRow({ label, value, valueColor = palette.text.primary }) {
   return (
     <Stack direction="row" justifyContent="space-between" sx={{ alignSelf: 'stretch' }}>
@@ -132,9 +99,8 @@ function CellRow({ label, value, valueColor = palette.text.primary }) {
   );
 }
 
-// Figma: commitment_radio (node 102:10494) — right-aligned text stack,
-// minimal 14px radio pinned top-left. Hero number is effective monthly cost
-// so every column (including Stay On-Demand) compares the same metric.
+// Figma: commitment_radio (node 102:10494) — right-aligned text stack, minimal
+// 14px radio pinned top-left. Hero number is monthly savings for this term.
 function RadioCellFrame({ selected, borderColor, bg, onClick, tooltip, radio = true, children }) {
   return (
     <HoverPopover content={tooltip}>
@@ -179,8 +145,9 @@ function RadioCellFrame({ selected, borderColor, bg, onClick, tooltip, radio = t
   );
 }
 
-function OptionCell({ instance, termId, selected, onSelect }) {
-  const opt = optionFor(instance, termId);
+// One term option for a commitment — aggregated across its resources.
+function OptionCell({ commitment, termId, selected, onSelect, showRisk }) {
+  const opt = aggregateOption(commitment.instances, termId);
   const term = TERMS[termId];
   const risk = riskParts(opt);
   const riskColor = term.guaranteed ? semantic.success.dark : semantic.warning.dark;
@@ -191,27 +158,32 @@ function OptionCell({ instance, termId, selected, onSelect }) {
         ? (term.guaranteed ? palette.brandPrimary[300] : palette.warning[300])
         : color.outlineBorder}
       bg={selected ? (term.guaranteed ? selectedBg : selectedBgNative) : palette.surface}
-      onClick={onSelect} // re-clicking the selected option deselects — resource stays on-demand
-      tooltip={optionTooltip(instance, opt)}
+      onClick={onSelect} // selecting a term always sets it — exclude via the row checkbox, not the radio
+      tooltip={optionTooltip(commitment, opt)}
     >
-      <Typography variant="h5" sx={{ color: semantic.success.dark }}>
+      <Typography variant="h6" sx={{ color: semantic.success.dark }}>
         +{fmtMoney(opt.savingsMo)}/mo
       </Typography>
       <CellRow label="Savings Rate" value={fmtPct(opt.rate)} />
       <CellRow label="Cost/mo" value={fmtMoney(opt.commitCostMo)} />
-      <Divider sx={{ alignSelf: 'stretch' }} />
-      <Box sx={{ alignSelf: 'flex-start', textAlign: 'left' }}>
-        <Typography variant="caption" sx={{ color: riskColor, display: 'block' }}>• {risk.left}</Typography>
-        <Typography variant="caption" sx={{ color: riskColor, display: 'block' }}>• {risk.right}</Typography>
-      </Box>
+      {showRisk && (
+        <>
+          <Divider sx={{ alignSelf: 'stretch' }} />
+          <Box sx={{ alignSelf: 'flex-start', textAlign: 'left' }}>
+            <Typography variant="caption" sx={{ color: riskColor, display: 'block' }}>• {risk.left}</Typography>
+            <Typography variant="caption" sx={{ color: riskColor, display: 'block' }}>• {risk.right}</Typography>
+          </Box>
+        </>
+      )}
     </RadioCellFrame>
   );
 }
 
-// Baseline reference — not selectable; unchecking the row is how a resource
+// Baseline reference — not selectable; deselecting the row's term is how a block
 // stays on-demand. Framed as the inefficient state, never the flexible one.
-function OnDemandCell({ instance, visibleTermIds }) {
-  const missedMo = Math.max(...visibleTermIds.map((t) => optionFor(instance, t).savingsMo));
+function OnDemandCell({ commitment, visibleTermIds, showRisk }) {
+  const costMo = commitment.instances.reduce((a, i) => a + i.costMo, 0);
+  const missedMo = Math.max(...visibleTermIds.map((t) => aggregateOption(commitment.instances, t).savingsMo));
   return (
     <RadioCellFrame
       radio={false}
@@ -223,176 +195,51 @@ function OnDemandCell({ instance, visibleTermIds }) {
           title="On-Demand"
           description="Paying full list price with no commitment. The most expensive option — every uncovered dollar is missed savings."
           rows={[
-            { k: 'Cost', val: `${fmtMoney(instance.costMo)}/mo` },
-            { k: 'Savings', val: '$0' },
-            { k: 'Missed savings', val: `${fmtMoney(missedMo)}/mo` },
+            { k: 'Cost', val: `${fmtMoney(costMo)}/mo` },
+            { k: 'Net Savings', val: '$0' },
+            { k: 'Missed net savings', val: `${fmtMoney(missedMo)}/mo` },
           ]}
         />
       )}
     >
-      <Typography variant="h5" color="text.secondary">$0/mo</Typography>
+      <Typography variant="h6" color="text.secondary">$0/mo</Typography>
       <CellRow label="Savings Rate" value="0%" valueColor={palette.text.secondary} />
-      <CellRow label="Cost/mo" value={fmtMoney(instance.costMo)} valueColor={palette.text.secondary} />
-      <Divider sx={{ alignSelf: 'stretch' }} />
-      <Box sx={{ alignSelf: 'flex-start', textAlign: 'left' }}>
-        <Typography variant="caption" sx={{ color: semantic.error.dark, display: 'block' }}>• Premium pricing</Typography>
-        <Typography variant="caption" sx={{ color: semantic.error.dark, display: 'block' }}>• missing {fmtMoney(missedMo)}/mo</Typography>
-      </Box>
+      <CellRow label="Cost/mo" value={fmtMoney(costMo)} valueColor={palette.text.secondary} />
+      {showRisk && (
+        <>
+          <Divider sx={{ alignSelf: 'stretch' }} />
+          <Box sx={{ alignSelf: 'flex-start', textAlign: 'left' }}>
+            <Typography variant="caption" sx={{ color: semantic.error.dark, display: 'block' }}>• Premium pricing</Typography>
+            <Typography variant="caption" sx={{ color: semantic.error.dark, display: 'block' }}>• missing {fmtMoney(missedMo)}/mo</Typography>
+          </Box>
+        </>
+      )}
     </RadioCellFrame>
   );
 }
 
-// ─── Large option card (By Service view) ─────────────────────────────────────
+// ─── Commitment table header ─────────────────────────────────────────────────
 
-// Figma: Container (Custom Plan Builder) node 104:10773 — h4 title row over a
-// divider, metric rows (Savings h5/h6 + rate sub-row, then body1 rows), elevation.
-function LargeCardFrame({ selected, borderColor, bg, onSelect, title, titleColor, chip, radio = true, children }) {
+// Select-all radio in a column header — sets/clears that term across every
+// commitment in the service (replaces the old per-column "apply to all" footer).
+function SelectAllRadio({ selected, onClick, title, tone = palette.uiPrimary[500] }) {
   return (
-    <Box
-      onClick={onSelect}
-      sx={{
-        flex: 1,
-        minWidth: 200,
-        border: `1px solid ${borderColor}`,
-        borderRadius: 1,
-        p: 1.625,
-        cursor: onSelect ? 'pointer' : 'default',
-        bgcolor: bg,
-        transition: 'box-shadow 0.15s ease',
-        ...(onSelect && { '&:hover': { boxShadow: elevation[2] } }),
-      }}
-    >
-      <Stack direction="row" spacing={0.5} alignItems="center" sx={{ mb: 1, minHeight: 38 }}>
-        {radio && <Radio checked={selected} size="small" />}
-        <Typography variant="h4" sx={{ color: titleColor, ...(!radio && { pl: 1 }) }}>{title}</Typography>
-        <Box sx={{ flex: 1 }} />
-        {chip}
-      </Stack>
-      <Divider />
-      <Stack spacing={0.5} sx={{ px: 0.5, pt: 1 }}>{children}</Stack>
-    </Box>
-  );
-}
-
-function CardRow({ label, value, labelVariant = 'body1', valueVariant = 'body1', labelColor = 'text.primary', valueSx, sx }) {
-  return (
-    <Stack direction="row" justifyContent="space-between" alignItems="baseline" sx={sx}>
-      <Typography variant={labelVariant} color={labelColor}>{label}</Typography>
-      {typeof value === 'string'
-        ? <Typography variant={valueVariant} sx={{ color: palette.text.secondary, ...valueSx }}>{value}</Typography>
-        : value}
-    </Stack>
-  );
-}
-
-function OptionCardLarge({ service, termId, selected, onSelect, nativeComparisonRate }) {
-  const term = TERMS[termId];
-  // Aggregate the option across all of the service's instances
-  let savings = 0;
-  let cost = 0;
-  let atRisk = 0;
-  let breakevenWeighted = 0;
-  service.instances.forEach((i) => {
-    const opt = optionFor(i, termId);
-    savings += opt.savingsMo;
-    cost += i.costMo;
-    atRisk += opt.atRisk;
-    breakevenWeighted += opt.breakevenDays * i.costMo;
-  });
-  const rate = savings / cost;
-  const breakeven = breakevenWeighted / cost;
-
-  return (
-    <LargeCardFrame
-      selected={selected}
-      onSelect={onSelect}
-      borderColor={selected
-        ? (term.guaranteed ? palette.brandPrimary[300] : palette.warning[300])
-        : color.outlineBorder}
-      bg={selected ? (term.guaranteed ? selectedBg : selectedBgNative) : palette.surface}
-      title={term.label}
-      titleColor={term.guaranteed ? palette.brandPrimary[500] : CSP.text}
-      chip={term.guaranteed && (
-        <Chip
-          size="small"
-          color="secondary"
-          variant="outlined"
-          label={<Typography variant="micro">Guaranteed</Typography>}
-        />
-      )}
-    >
-      <CardRow
-        label="Savings"
-        labelVariant="h5"
-        value={(
-          <Typography variant="h6" sx={{ color: semantic.success.dark }}>
-            +{fmtMoney(savings)}/mo
-          </Typography>
-        )}
-      />
-      <CardRow
-        label="Savings Rate"
-        labelVariant="body2"
-        labelColor="text.secondary"
-        valueVariant="body2"
-        value={`${fmtPct(rate)}${nativeComparisonRate ? ` · native 1Y: ${fmtPct(nativeComparisonRate)}` : ''}`}
-        sx={{ mt: -0.25 }}
-      />
-      <CardRow label="Effective cost" labelVariant="caption" labelColor="text.secondary" valueVariant="caption" value={`${fmtMoney(cost - savings)}/mo`} />
-      <CardRow label="Breakeven" labelVariant="caption" labelColor="text.secondary" valueVariant="caption" value={`${Math.round(breakeven)} days`} />
-      <Divider />
-      <Typography
-        variant="caption"
-        sx={{ color: term.guaranteed ? semantic.success.dark : semantic.warning.dark }}
+    <Tooltip title={title}>
+      <MuiIcon
+        onClick={onClick}
+        {...(!selected && { baseClassName: 'material-icons-outlined' })}
+        sx={{ fontSize: 16, cursor: 'pointer', flexShrink: 0, color: selected ? tone : palette.text.secondary }}
       >
-        {term.guaranteed
-          ? (term.lockDays <= 30 ? 'Exit monthly — $0 at risk, Archera buys back unused' : 'Guaranteed — if usage drops, Archera pays the shortfall')
-          : `${term.lockLabel} — ${fmtMoney(atRisk)} at risk if usage drops`}
-      </Typography>
-    </LargeCardFrame>
+        {selected ? 'radio_button_checked' : 'radio_button_unchecked'}
+      </MuiIcon>
+    </Tooltip>
   );
 }
 
-// Service-level baseline reference — not selectable; framed as the
-// inefficient state (premium pricing, missed savings), never as flexibility.
-function OnDemandCardLarge({ service, visibleTermIds }) {
-  const cost = service.instances.reduce((a, i) => a + i.costMo, 0);
-  const missedMo = Math.max(...visibleTermIds.map((t) =>
-    service.instances.reduce((a, i) => a + optionFor(i, t).savingsMo, 0)));
-  return (
-    <LargeCardFrame
-      radio={false}
-      borderColor="transparent"
-      bg={onDemandBg}
-      title="Currently Uncovered"
-      titleColor={semantic.error.dark}
-    >
-      <CardRow
-        label="Savings"
-        labelVariant="h5"
-        value={<Typography variant="h6" color="text.secondary">$0/mo</Typography>}
-      />
-      <CardRow
-        label="Savings Rate"
-        labelVariant="body2"
-        labelColor="text.secondary"
-        valueVariant="body2"
-        value="0%"
-        sx={{ mt: -0.25 }}
-      />
-      <CardRow label="List price" value={`${fmtMoney(cost)}/mo`} />
-      <CardRow label="Breakeven" value="—" />
-      <Divider />
-      <Typography variant="caption" sx={{ color: semantic.error.dark }}>
-        Premium pricing — missing {fmtMoney(missedMo)}/mo in available savings
-      </Typography>
-    </LargeCardFrame>
-  );
-}
-
-// ─── By Instance table header ────────────────────────────────────────────────
-
-function InstanceTableHeader({ visibleTermIds }) {
+function CommitmentTableHeader({
+  visibleTermIds, view, setView, hideOnDemand = false,
+  showSelectAll = false, serviceId, serviceTerm, setServiceTerm, noneIncluded, commitmentCount = 0,
+}) {
   return (
     <Stack
       direction="row"
@@ -400,27 +247,54 @@ function InstanceTableHeader({ visibleTermIds }) {
       alignItems="flex-end"
       sx={{ px: 2, pt: 1, borderTop: `1px solid ${color.divider}`, bgcolor: palette.surface }}
     >
-      <Box sx={{ width: COL.checkbox, flexShrink: 0 }} />
-      <Typography variant="h6" color="text.secondary" sx={{ width: COL.info, flexShrink: 0, pb: 1 }}>
-        Resource
-      </Typography>
+      <Box sx={{ width: COL.lead + COL.info, flexShrink: 0, pb: 1 }}>
+        <ToggleButtonGroup size="small" exclusive value={view} onChange={(e, v) => v && setView(v)}>
+          <ToggleButton value="commitment">By Commitment</ToggleButton>
+          <ToggleButton value="service">By Service</ToggleButton>
+        </ToggleButtonGroup>
+      </Box>
       <Stack direction="row" spacing={1} alignItems="flex-end" sx={{ flex: 1 }}>
+        {!hideOnDemand && (
         <Box sx={{ flex: 1, minWidth: COL.option, maxWidth: COL.optionMax, px: 1.5, pb: 1 }}>
-          <Typography variant="h6" sx={{ color: semantic.error.dark }}>Currently Uncovered</Typography>
-          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>missed savings /mo</Typography>
+          <Typography variant="micro" color="text.secondary" sx={{ display: 'block' }}>NO COMMITMENT</Typography>
+          <Typography variant="h6" sx={{ color: semantic.error.dark }}>On-Demand</Typography>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>net savings /mo</Typography>
         </Box>
+        )}
         {visibleTermIds.map((t) => {
           const term = TERMS[t];
+          const lockDate = term.lockLabel.replace(/^Locked until /, '');
           return (
             <Box key={t} sx={{ flex: 1, minWidth: COL.option, maxWidth: COL.optionMax, px: 1.5, pb: 1 }}>
-              <Typography
-                variant="h6"
-                sx={{ color: term.guaranteed ? palette.brandPrimary[500] : CSP.text }}
-              >
-                {term.label}
+              <Typography variant="micro" color="text.secondary" sx={{ display: 'block' }}>
+                {term.guaranteed ? 'GUARANTEED' : 'NON-GUARANTEED'}
               </Typography>
+              <Stack direction="row" alignItems="center" spacing={0.5}>
+                {showSelectAll && (
+                  <SelectAllRadio
+                    selected={serviceTerm === t}
+                    onClick={() => setServiceTerm(serviceId, t)}
+                    title={serviceTerm === t
+                      ? `All ${commitmentCount} commitments on ${term.label}`
+                      : `Apply ${term.label} to all ${commitmentCount} commitments`}
+                  />
+                )}
+                <Typography variant="h6" sx={{ color: term.guaranteed ? palette.brandPrimary[500] : CSP.text }}>
+                  {term.label}
+                </Typography>
+                {!term.guaranteed && (
+                  <Tooltip
+                    title={`Native ${term.short} locks you in until ${lockDate}. If your usage drops, you keep paying for the unused commitment until then — that remaining obligation is your amount at risk. Guaranteed terms carry $0 at risk: Archera buys back unused commitments.`}
+                  >
+                    <Stack direction="row" alignItems="center" spacing={0.25} sx={{ cursor: 'default' }}>
+                      <MuiIcon baseClassName="material-icons-outlined" sx={{ fontSize: 14, color: semantic.warning.dark }}>lock</MuiIcon>
+                      <Typography variant="caption" sx={{ color: semantic.warning.dark }}>{lockDate}</Typography>
+                    </Stack>
+                  </Tooltip>
+                )}
+              </Stack>
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>
-                est. savings /mo
+                est. net savings /mo
               </Typography>
             </Box>
           );
@@ -430,185 +304,528 @@ function InstanceTableHeader({ visibleTermIds }) {
   );
 }
 
-// ─── By Instance table footer — service-wide totals per column ──────────────
-// Each total = est. savings if every resource took that term; click to apply to all.
+// ─── Read-only resource drill-down ───────────────────────────────────────────
 
-function InstanceTableFooter({ service, visibleTermIds, uniformTerm, setServiceTerm }) {
-  const listTotal = service.instances.reduce((a, i) => a + i.costMo, 0);
-  const termTotal = (t) => service.instances.reduce((a, i) => a + optionFor(i, t).savingsMo, 0);
+// Resource table column widths + helpers
+const RCOL = { rate: 100, savings: 156, cost: 112, covered: 156, usage: 150 };
+const fmtRate = (v) => `$${v.toFixed(2)}`;
+// Lookback window shown under each sparkline (mock — matches the 30-day usage panel).
+const LOOKBACK = { start: 'May 17', end: 'Jun 15' };
+
+function MiniSparkline({ instance }) {
+  const pts = sparkPoints(instance);
+  const w = 144;
+  const h = 28;
+  const x = (i) => ((i / (pts.length - 1)) * w).toFixed(1);
+  const y = (p) => (h - 2 - p * (h - 4)).toFixed(1);
+  const line = pts.map((p, i) => `${i ? 'L' : 'M'}${x(i)},${y(p)}`).join(' ');
+  const stroke = instance.stable ? semantic.success.main : semantic.warning.main;
   return (
-    <Stack
-      direction="row"
-      spacing={1.5}
-      alignItems="center"
-      sx={{ px: 2, py: 1, borderTop: `1px solid ${color.divider}`, bgcolor: palette.neutral[50] }}
-    >
-      <Box sx={{ width: COL.checkbox, flexShrink: 0 }} />
-      <Box sx={{ width: COL.info, flexShrink: 0 }}>
-        <Typography variant="h6" color="text.secondary">Service total</Typography>
-        <Typography variant="caption" color="text.secondary">
-          {service.instances.length} resources
-        </Typography>
-      </Box>
-      <Stack direction="row" spacing={1} sx={{ flex: 1 }}>
-        <Box sx={{ flex: 1, minWidth: COL.option, maxWidth: COL.optionMax, px: 1.5, py: 0.5, textAlign: 'right' }}>
-          <Typography variant="h6" color="text.secondary">$0/mo</Typography>
-          <Typography variant="caption" color="text.secondary">list {fmtMoney(listTotal)}/mo</Typography>
-        </Box>
-        {visibleTermIds.map((t) => {
-          const term = TERMS[t];
-          const isUniform = uniformTerm === t;
-          return (
-            <Tooltip key={t} title={`Apply ${term.label} to all ${service.instances.length} resources`}>
-              <Box
-                onClick={() => setServiceTerm(service.id, isUniform ? null : t)}
-                sx={{
-                  flex: 1,
-                  minWidth: COL.option,
-                  maxWidth: COL.optionMax,
-                  px: 1.5,
-                  py: 0.5,
-                  textAlign: 'right',
-                  cursor: 'pointer',
-                  borderRadius: 1,
-                  border: `1px solid ${isUniform
-                    ? (term.guaranteed ? palette.brandPrimary[300] : palette.warning[300])
-                    : 'transparent'}`,
-                  bgcolor: isUniform ? (term.guaranteed ? selectedBg : selectedBgNative) : 'transparent',
-                  transition: 'box-shadow 0.15s ease',
-                  '&:hover': { boxShadow: elevation[2] },
-                }}
-              >
-                <Typography variant="h6" sx={{ color: semantic.success.dark }}>
-                  +{fmtMoney(termTotal(t))}/mo
-                </Typography>
-                <Typography variant="caption" color="text.secondary">
-                  {isUniform ? 'applied to all' : 'apply to all'}
-                </Typography>
-              </Box>
-            </Tooltip>
-          );
-        })}
+    <Box>
+      <svg width="100%" height={h} viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" style={{ display: 'block' }}>
+        <path d={line} fill="none" stroke={stroke} strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
+      </svg>
+      <Stack direction="row" justifyContent="space-between">
+        <Typography variant="micro" color="text.secondary">{LOOKBACK.start}</Typography>
+        <Typography variant="micro" color="text.secondary">{LOOKBACK.end}</Typography>
       </Stack>
-    </Stack>
+    </Box>
   );
 }
 
-// ─── Instance row ────────────────────────────────────────────────────────────
-
-function InstanceRow({ instance, selections, setSelection, visibleTermIds }) {
+// Per-resource derived values for the selected term (on-demand when uncovered).
+function resourceRow(instance, selections) {
   const termId = selections[instance.id];
-  const excluded = termId === null; // excluded = staying on-demand
+  const beforeHr = instance.costMo / 730;
+  const opt = termId ? optionFor(instance, termId) : null;
+  return {
+    i: instance,
+    beforeHr,
+    afterHr: opt ? opt.commitCostMo / 730 : beforeHr,
+    savings: opt ? opt.savingsMo : 0,
+    cost: opt ? opt.commitCostMo : instance.costMo,
+    onDemand: opt ? 0 : instance.costMo,
+    covered: opt ? 1 : 0,
+  };
+}
 
+function SortHeader({ label, sortKey, sort, setSort, width }) {
+  const active = sort.key === sortKey;
+  const icon = !active ? 'swap_vert' : (sort.dir === 'asc' ? 'arrow_upward' : 'arrow_downward');
+  const toggle = () => setSort((s) => (s.key === sortKey
+    ? { key: sortKey, dir: s.dir === 'asc' ? 'desc' : 'asc' }
+    : { key: sortKey, dir: sortKey === 'name' ? 'asc' : 'desc' }));
   return (
-    <Stack
-      direction="row"
-      spacing={1.5}
-      alignItems="center"
+    <Box
+      onClick={toggle}
       sx={{
-        py: 1,
-        px: 2,
-        borderTop: `1px solid ${color.divider}`,
+        ...(width ? { width, flexShrink: 0, justifyContent: 'flex-end' } : { flex: 1, justifyContent: 'flex-start' }),
+        display: 'flex', alignItems: 'center', gap: 0.25, cursor: 'pointer', userSelect: 'none',
       }}
     >
-      <Tooltip title={excluded ? 'Include in plan' : 'Exclude from plan — stays on-demand'}>
-        <Checkbox
-          checked={!excluded}
-          onChange={() => setSelection(instance.id, excluded ? 'archera_30d' : null)}
-        />
-      </Tooltip>
-      <Box sx={{ width: COL.info, flexShrink: 0 }}>
-        <Typography variant="body1" sx={{ fontWeight: 500 }}>{instance.name}</Typography>
-        <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-          {instance.type} | {instance.platform} | {instance.region}
+      <Typography variant="body2" color="text.secondary" sx={{ whiteSpace: 'nowrap' }}>{label}</Typography>
+      <MuiIcon sx={{ fontSize: 15, color: active ? palette.text.primary : palette.text.disabled }}>{icon}</MuiIcon>
+    </Box>
+  );
+}
+
+// Reusable read-only resource table — sortable, searchable + paginated. Used by
+// both the commitment drill-down (a line item can cover thousands of resources)
+// and the service drill-down (all of the service's resources).
+function ResourceTable({ instances, infraSrc, service, selections, title = 'Covered resources · read-only', pageSize = 5 }) {
+  const [query, setQuery] = useState('');
+  const [page, setPage] = useState(1);
+  const [sort, setSort] = useState({ key: null, dir: 'desc' });
+
+  const rows = instances.map((i) => resourceRow(i, selections));
+  const q = query.trim().toLowerCase();
+  const showSearch = instances.length > pageSize;
+  let view = q
+    ? rows.filter(({ i }) => [i.name, i.type, i.platform, i.region, i.resourceId].some((f) => f.toLowerCase().includes(q)))
+    : rows;
+  if (sort.key) {
+    const acc = {
+      name: (r) => r.i.name, before: (r) => r.beforeHr, after: (r) => r.afterHr,
+      savings: (r) => r.savings, cost: (r) => r.cost, covered: (r) => r.covered,
+    }[sort.key];
+    view = [...view].sort((a, b) => {
+      const av = acc(a);
+      const bv = acc(b);
+      const c = typeof av === 'string' ? av.localeCompare(bv) : av - bv;
+      return sort.dir === 'asc' ? c : -c;
+    });
+  }
+  const pages = Math.max(1, Math.ceil(view.length / pageSize));
+  const current = Math.min(page, pages);
+  const pageItems = view.slice((current - 1) * pageSize, current * pageSize);
+
+  return (
+    <Box sx={{ bgcolor: palette.neutral[50], borderTop: `1px solid ${color.divider}`, p: '2px 4px 4px' }}>
+      <Box
+        sx={{
+          bgcolor: palette.surface,
+          border: `1px solid ${color.outlineBorder}`,
+          borderRadius: 1,
+          borderTopLeftRadius: 0,
+          borderTopRightRadius: 0,
+          overflow: 'hidden',
+        }}
+      >
+      <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ px: 2, pt: 1, pb: 0.5, gap: 1 }}>
+        <Typography variant="overline" color="text.secondary">{title}</Typography>
+        <Stack direction="row" spacing={1.5} alignItems="center">
+          {showSearch && (
+            <Box sx={{ width: 220 }}>
+              <TextField
+                fullWidth
+                size="small"
+                placeholder="Search resources"
+                value={query}
+                onChange={(e) => { setQuery(e.target.value); setPage(1); }}
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <MuiIcon baseClassName="material-icons-outlined" sx={{ fontSize: 18 }}>search</MuiIcon>
+                    </InputAdornment>
+                  ),
+                }}
+              />
+            </Box>
+          )}
+          <Typography variant="caption" color="text.secondary">
+            {q ? `${view.length} of ${instances.length}` : instances.length} resource{instances.length === 1 ? '' : 's'}
+          </Typography>
+        </Stack>
+      </Stack>
+
+      {/* Column headers */}
+      <Stack direction="row" spacing={1.5} alignItems="center" sx={{ px: 2, py: 0.5, borderBottom: `1px solid ${color.divider}` }}>
+        <SortHeader label="Resource" sortKey="name" sort={sort} setSort={setSort} />
+        <SortHeader label="Before Rate" sortKey="before" sort={sort} setSort={setSort} width={RCOL.rate} />
+        <SortHeader label="After Rate" sortKey="after" sort={sort} setSort={setSort} width={RCOL.rate} />
+        <SortHeader label="Net Monthly Savings" sortKey="savings" sort={sort} setSort={setSort} width={RCOL.savings} />
+        <SortHeader label="Monthly Cost" sortKey="cost" sort={sort} setSort={setSort} width={RCOL.cost} />
+        <SortHeader label="% Instance Covered" sortKey="covered" sort={sort} setSort={setSort} width={RCOL.covered} />
+        <Typography variant="body2" color="text.secondary" sx={{ width: RCOL.usage, flexShrink: 0, whiteSpace: 'nowrap' }}>Historical Usage</Typography>
+      </Stack>
+
+      {pageItems.map((r, idx) => (
+        <Stack
+          key={r.i.id}
+          direction="row"
+          spacing={1.5}
+          alignItems="center"
+          sx={{ px: 2, py: 1, borderTop: idx ? `1px solid ${color.divider}` : 'none' }}
+        >
+          <HoverPopover placement="left-start" interactive content={<ResourceDetailPopover instance={r.i} service={service} infraSrc={infraSrc} />}>
+          <Stack direction="row" spacing={1.25} alignItems="center" sx={{ flex: 1, minWidth: 0, cursor: 'default' }}>
+            <Box component="img" src={infraSrc} alt="" sx={{ width: 22, height: 22, objectFit: 'contain', flexShrink: 0 }} />
+            <Box sx={{ minWidth: 0 }}>
+              <Typography variant="body2" sx={{ fontWeight: 500 }}>{r.i.name}</Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                {r.i.type} | {r.i.platform} | {r.i.region}
+              </Typography>
+              <Typography variant="caption" color="text.secondary">{r.i.resourceId}</Typography>
+            </Box>
+          </Stack>
+          </HoverPopover>
+          <Typography variant="body2" sx={{ width: RCOL.rate, flexShrink: 0, textAlign: 'right' }}>{fmtRate(r.beforeHr)}</Typography>
+          <Typography variant="body2" sx={{ width: RCOL.rate, flexShrink: 0, textAlign: 'right' }}>{fmtRate(r.afterHr)}</Typography>
+          <Typography
+            variant="body2"
+            sx={{ width: RCOL.savings, flexShrink: 0, textAlign: 'right', fontWeight: r.savings > 0 ? 600 : 400, color: r.savings > 0 ? semantic.success.dark : palette.text.secondary }}
+          >
+            {r.savings > 0 ? `+${fmtMoney(r.savings)}` : fmtMoney(0)}
+          </Typography>
+          <Box sx={{ width: RCOL.cost, flexShrink: 0, textAlign: 'right' }}>
+            <Typography variant="body2">{fmtMoney(r.cost)}</Typography>
+            <Typography variant="caption" color="text.secondary">{fmtMoney(r.onDemand)} on-demand</Typography>
+          </Box>
+          <Typography variant="body2" sx={{ width: RCOL.covered, flexShrink: 0, textAlign: 'right' }}>{fmtPct(r.covered)}</Typography>
+          <Box sx={{ width: RCOL.usage, flexShrink: 0 }}><MiniSparkline instance={r.i} /></Box>
+        </Stack>
+      ))}
+      {view.length === 0 && (
+        <Typography variant="body2" color="text.secondary" sx={{ px: 2, py: 1.5 }}>
+          No resources match “{query}”.
         </Typography>
-        <Typography variant="caption" color="text.secondary">{instance.resourceId}</Typography>
-        <UsageIndicator instance={instance} />
+      )}
+
+      {pages > 1 && (
+        <Box sx={{ display: 'flex', justifyContent: 'center', py: 1 }}>
+          <Pagination size="small" count={pages} page={current} onChange={(e, v) => setPage(v)} />
+        </Box>
+      )}
       </Box>
-      <Stack direction="row" spacing={1} sx={{ flex: 1 }}>
-        <OnDemandCell instance={instance} visibleTermIds={visibleTermIds} />
-        {visibleTermIds.map((t) => (
-          <OptionCell
-            key={t}
-            instance={instance}
-            termId={t}
-            selected={termId === t}
-            onSelect={() => setSelection(instance.id, termId === t ? null : t)}
-          />
+    </Box>
+  );
+}
+
+// ─── Commitment detail popover ───────────────────────────────────────────────
+// Hover detail mirroring the term popovers: the commitment icon + identity, then
+// key/value pairs for everything on the line item, each with a copy affordance.
+
+function AccountBadge() {
+  return (
+    <Box
+      sx={{
+        width: 18, height: 18, borderRadius: 0.5, flexShrink: 0,
+        bgcolor: palette.brandPrimary[500],
+        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+      }}
+    >
+      <Typography variant="micro" sx={{ color: palette.neutral.white, fontWeight: 700, lineHeight: 1 }}>A</Typography>
+    </Box>
+  );
+}
+
+function AccountValue({ id }) {
+  return (
+    <Typography variant="body2" component="span">
+      <Box component="span" sx={{ fontWeight: 600 }}>Archera Managed Account:</Box>{' '}
+      <Box component="span" sx={{ color: 'text.secondary' }}>{id}</Box>
+    </Typography>
+  );
+}
+
+function CommitmentDetailPopover({ commitment, service, termId, infraSrc }) {
+  const detail = commitmentDetail(commitment, service);
+  const title = commitmentTitle(commitment.vehicle, iconStyleFor(termId));
+  return (
+    <Box sx={{ p: 2, width: 460 }}>
+      {/* Header — icon + identity */}
+      <Stack direction="row" spacing={1} alignItems="flex-start" sx={{ mb: 1 }}>
+        <Box sx={{ mt: 0.25 }}>
+          <CommitmentIcon kind={commitment.kind} infraSrc={infraSrc} termId={termId} size={26} />
+        </Box>
+        <Box sx={{ minWidth: 0 }}>
+          <Typography variant="subtitle2" sx={{ fontWeight: 600, textTransform: 'none', color: title.color }}>{title.text}</Typography>
+          {detail.subline && (
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>{detail.subline}</Typography>
+          )}
+        </Box>
+      </Stack>
+
+      {/* Key / value rows */}
+      <Stack>
+        {detail.rows.map((r) => (
+          <Stack key={r.label} direction="row" alignItems="center" spacing={1} sx={{ py: 0.25, borderTop: `1px solid ${color.divider}` }}>
+            <Typography variant="body2" color="text.secondary" sx={{ width: 150, flexShrink: 0 }}>{r.label}:</Typography>
+            <Box sx={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 0.75 }}>
+              {r.account && <AccountBadge />}
+              {r.account
+                ? <AccountValue id={r.value} />
+                : <Typography variant="body2" sx={{ wordBreak: 'break-all' }}>{r.value}</Typography>}
+            </Box>
+            <Tooltip title="Copy">
+              <IconButton size="small" onClick={() => navigator.clipboard?.writeText(String(r.value))} sx={{ flexShrink: 0, p: 0.25 }}>
+                <MuiIcon baseClassName="material-icons-outlined" sx={{ fontSize: 15, color: palette.text.secondary }}>content_copy</MuiIcon>
+              </IconButton>
+            </Tooltip>
+          </Stack>
         ))}
       </Stack>
-    </Stack>
+
+      {/* Footer — RI size-flexibility helper */}
+      {detail.riFooter && (
+        <Stack direction="row" spacing={0.75} alignItems="center" sx={{ mt: 1.5 }}>
+          <MuiIcon sx={{ fontSize: 16, color: palette.uiPrimary[500] }}>info</MuiIcon>
+          <Link component="button" variant="body2" underline="hover">Why this Size?</Link>
+          <Typography variant="body2" color="text.secondary">Learn about</Typography>
+          <Link component="button" variant="body2" underline="hover">Instance Size Flexibility</Link>
+          <MuiIcon sx={{ fontSize: 14, color: palette.uiPrimary[500] }}>open_in_new</MuiIcon>
+        </Stack>
+      )}
+    </Box>
   );
 }
 
-// ─── Header metric "stat" — NEW Design System ThumbStat (node 2016:1201) ────
-// Reproduced to the EXACT Figma spec. NOTE: these literal values come straight
-// from the Figma node because the prototype's @archera/design-system palette is
-// out of sync with the NEW Design System file (text-secondary/neutrals-600
-// differ), so the tokens don't resolve to the same values. ds-audit-ignore-start
-const DS_TEXT_SECONDARY = 'rgba(110, 108, 115, 0.75)'; // Figma text-color/text-secondary
-const DS_NEUTRAL_600 = '#73747e';                      // Figma neutrals/600
-function HeaderMetricCard({ label, value, accent, annotation }) {
+// Per-resource hover detail — same key/value treatment as the commitment popover.
+function ResourceDetailPopover({ instance, service, infraSrc }) {
+  const detail = resourceDetail(instance, service);
   return (
-    <Stack
-      direction="row"
-      alignItems="center"
-      sx={{
-        gap: '12px',
-        border: `2px solid ${DS_TEXT_SECONDARY}`,
-        borderRadius: '8px',
-        px: '20px',
-        py: '16px',
-        bgcolor: palette.surface,
-        minWidth: 200, // design size; grows for longer labels rather than truncating
-      }}
-    >
-      <Typography sx={{ fontSize: '16px', lineHeight: '16px', color: DS_TEXT_SECONDARY, whiteSpace: 'nowrap' }}>{label}</Typography>
-      <Box sx={{ flex: 1 }} />
-      <Stack direction="row" alignItems="baseline" sx={{ gap: '4px', flexShrink: 0 }}>
-        <Typography sx={{ fontSize: '16px', lineHeight: '16px', fontWeight: 700, color: accent }}>{value}</Typography>
-        {annotation && <Typography sx={{ fontSize: '12px', lineHeight: '16px', color: DS_NEUTRAL_600 }}>{annotation}</Typography>}
+    <Box sx={{ p: 2, width: 420 }}>
+      <Stack direction="row" spacing={1} alignItems="flex-start" sx={{ mb: 1 }}>
+        <Box component="img" src={infraSrc} alt="" sx={{ width: 24, height: 24, objectFit: 'contain', flexShrink: 0, mt: 0.25 }} />
+        <Box sx={{ minWidth: 0 }}>
+          <Typography variant="subtitle2" sx={{ fontWeight: 600, textTransform: 'none' }}>{instance.name}</Typography>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>{detail.subline}</Typography>
+        </Box>
+      </Stack>
+      <Stack>
+        {detail.rows.map((r) => (
+          <Stack key={r.label} direction="row" alignItems="center" spacing={1} sx={{ py: 0.25, borderTop: `1px solid ${color.divider}` }}>
+            <Typography variant="body2" color="text.secondary" sx={{ width: 150, flexShrink: 0 }}>{r.label}:</Typography>
+            <Box sx={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 0.75 }}>
+              {r.account && <AccountBadge />}
+              {r.account
+                ? <AccountValue id={r.value} />
+                : <Typography variant="body2" sx={{ wordBreak: 'break-all' }}>{r.value}</Typography>}
+            </Box>
+            <Tooltip title="Copy">
+              <IconButton size="small" onClick={() => navigator.clipboard?.writeText(String(r.value))} sx={{ flexShrink: 0, p: 0.25 }}>
+                <MuiIcon baseClassName="material-icons-outlined" sx={{ fontSize: 15, color: palette.text.secondary }}>content_copy</MuiIcon>
+              </IconButton>
+            </Tooltip>
+          </Stack>
+        ))}
+      </Stack>
+    </Box>
+  );
+}
+
+// ─── Commitment row ──────────────────────────────────────────────────────────
+
+function CommitmentRow({ commitment, service, infraSrc, selections, setCommitmentTerm, visibleTermIds, resourceQuery, hideOnDemand }) {
+  const [open, setOpen] = useState(false);
+  const ct = commitmentTerm(commitment, selections);
+  const included = ct !== null;
+  const ids = commitment.instances.map((i) => i.id);
+  // Current monthly cost of the block: committed cost where a term is selected,
+  // on-demand where the resource is excluded (so it tracks the selection).
+  const costMo = commitment.instances.reduce((a, i) => {
+    const t = selections[i.id];
+    return a + (t ? optionFor(i, t).commitCostMo : i.costMo);
+  }, 0);
+  const usage = commitmentUsage(commitment.instances);
+  const title = commitmentTitle(commitment.vehicle, iconStyleFor(ct));
+  const hasMatch = Boolean(resourceQuery) && commitment.instances.some((i) => resourceMatches(i, resourceQuery));
+  const dOpen = open || hasMatch;
+
+  return (
+    <Box sx={{ borderTop: `1px solid ${color.divider}` }}>
+      <Stack direction="row" spacing={1.5} alignItems="center" sx={{ py: 1, px: 2 }}>
+        {/* Lead: include/exclude + drill chevron */}
+        <Stack direction="row" alignItems="center" sx={{ width: COL.lead, flexShrink: 0 }}>
+          <Tooltip title={included ? 'Exclude this commitment — its resources stay on-demand' : 'Include this commitment (30-day Guaranteed)'}>
+            <Checkbox
+              checked={included}
+              indeterminate={ct === 'mixed'}
+              onChange={() => setCommitmentTerm(ids, included ? null : 'archera_30d')}
+            />
+          </Tooltip>
+          <Tooltip title={dOpen ? 'Hide covered resources' : 'Show covered resources'}>
+            <IconButton size="small" onClick={() => setOpen((o) => !o)}>
+              <MuiIcon sx={{ fontSize: 20 }}>{dOpen ? 'expand_less' : 'expand_more'}</MuiIcon>
+            </IconButton>
+          </Tooltip>
+        </Stack>
+
+        {/* Commitment identity — vehicle, then the scope it covers. Hover for the
+            full commitment detail (key/value pairs). */}
+        <HoverPopover
+          placement="left-start"
+          interactive
+          content={<CommitmentDetailPopover commitment={commitment} service={service} termId={ct} infraSrc={infraSrc} />}
+        >
+        <Stack direction="row" spacing={1.25} alignItems="flex-start" sx={{ width: COL.info, flexShrink: 0, cursor: 'default' }}>
+          <Box sx={{ mt: 0.25 }}>
+            <CommitmentIcon kind={commitment.kind} infraSrc={infraSrc} termId={ct} size={32} />
+          </Box>
+          <Box sx={{ minWidth: 0 }}>
+            <Typography variant="body1" sx={{ fontWeight: 500, color: title.color }}>{title.text}</Typography>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>{commitment.scope}</Typography>
+            <Stack direction="row" alignItems="center" spacing={0.5} sx={{ mt: 0.25 }}>
+              <Typography variant="caption" color="text.secondary">
+                {commitment.instances.length} resource{commitment.instances.length === 1 ? '' : 's'} · {fmtMoney(costMo)}/mo
+              </Typography>
+              <Typography variant="caption" sx={{ color: usage.tone, fontWeight: 500 }}>· {usage.label}</Typography>
+            </Stack>
+          </Box>
+        </Stack>
+        </HoverPopover>
+
+        {/* Term comparison */}
+        <Stack direction="row" spacing={1} sx={{ flex: 1 }}>
+          {!hideOnDemand && <OnDemandCell commitment={commitment} visibleTermIds={visibleTermIds} showRisk={false} />}
+          {visibleTermIds.map((t) => (
+            <OptionCell
+              key={t}
+              commitment={commitment}
+              termId={t}
+              selected={ct === t}
+              onSelect={() => setCommitmentTerm(ids, t)}
+              showRisk={false}
+            />
+          ))}
+        </Stack>
+      </Stack>
+
+      {/* Drill-down: the resources this commitment covers (read-only, searchable/paginated) */}
+      <Collapse in={dOpen}>
+        <ResourceTable instances={commitment.instances} infraSrc={infraSrc} service={service} selections={selections} query={resourceQuery} />
+      </Collapse>
+    </Box>
+  );
+}
+
+// ─── Coverage bar (Figma node 151:15296) ────────────────────────────────────
+// Stacked coverage: current (error) → projected (success) on a neutral track,
+// with white % labels and a gold target tick, plus a legend below.
+// ds-audit-ignore-start — brand-accent-1/500 (#ffd080) not yet in the palette
+const TARGET_TICK = '#ffd080';
+// ds-audit-ignore-end
+function CoverageBar({ current, projected, target }) {
+  const pct = (v) => `${Math.round(v * 100)}%`;
+  const greenW = Math.max(0, projected - current);
+  return (
+    <Stack spacing={1} sx={{ borderTop: `1px solid ${color.outlineBorder}`, pt: 1.5 }}>
+      <Box sx={{ position: 'relative', height: 24, borderRadius: '4px', bgcolor: palette.neutral[300], overflow: 'hidden', display: 'flex' }}>
+        <Box sx={{ width: `${current * 100}%`, bgcolor: semantic.error.main, display: 'flex', alignItems: 'center', minWidth: 0, overflow: 'hidden' }}>
+          <Typography variant="caption" sx={{ color: palette.neutral.white, pl: 1, whiteSpace: 'nowrap' }}>{pct(current)}</Typography>
+        </Box>
+        <Box sx={{ width: `${greenW * 100}%`, bgcolor: semantic.success.main, display: 'flex', alignItems: 'center', minWidth: 0, overflow: 'hidden' }}>
+          <Typography variant="caption" sx={{ color: palette.neutral.white, pl: 1, whiteSpace: 'nowrap' }}>{pct(projected)}</Typography>
+        </Box>
+        <Box sx={{ position: 'absolute', top: 0, bottom: 0, left: `${target * 100}%`, width: '2px', bgcolor: TARGET_TICK }} />
+      </Box>
+      <Stack direction="row" spacing={1.5} alignItems="center" useFlexGap flexWrap="wrap">
+        <Typography variant="caption" sx={{ fontWeight: 700 }}>Coverage:</Typography>
+        <Stack direction="row" spacing={0.5} alignItems="center">
+          <Box sx={{ width: 8, height: 10, borderRadius: '2px', bgcolor: semantic.error.main, flexShrink: 0 }} />
+          <Typography variant="caption" color="text.secondary">Now ({pct(current)})</Typography>
+        </Stack>
+        <Stack direction="row" spacing={0.5} alignItems="center">
+          <Box sx={{ width: 8, height: 10, borderRadius: '2px', bgcolor: semantic.success.main, flexShrink: 0 }} />
+          <Typography variant="caption" color="text.secondary">With this plan: ({pct(projected)} | target: {pct(target)})</Typography>
+        </Stack>
       </Stack>
     </Stack>
   );
 }
-// ds-audit-ignore-end
+
+// ─── Service-level aggregate row (By Service view) ──────────────────────────
+// One term decision for the whole service, applied across all its commitments.
+// Drill-down shows every resource in the service (searchable / paginated).
+
+function ServiceAggregateRow({ service, infraSrc, serviceTerm, allIncluded, noneIncluded, setServiceTerm, visibleTermIds, selections, resourceQuery, hideOnDemand }) {
+  const [open, setOpen] = useState(false);
+  const allInst = service.instances;
+  const pseudo = { instances: allInst, name: service.name };
+  const costMo = allInst.reduce((a, i) => {
+    const t = selections[i.id];
+    return a + (t ? optionFor(i, t).commitCostMo : i.costMo);
+  }, 0);
+  const commitmentCount = serviceCommitments(service).length;
+  const usage = commitmentUsage(allInst);
+  const hasMatch = Boolean(resourceQuery) && allInst.some((i) => resourceMatches(i, resourceQuery));
+  const dOpen = open || hasMatch;
+
+  return (
+    <Box sx={{ borderTop: `1px solid ${color.divider}` }}>
+      <Stack direction="row" spacing={1.5} alignItems="center" sx={{ py: 1, px: 2 }}>
+        <Stack direction="row" alignItems="center" sx={{ width: COL.lead, flexShrink: 0 }}>
+          <Tooltip title={allIncluded ? `Exclude all ${service.name} — stays on-demand` : `Include all ${service.name} (30-day Guaranteed)`}>
+            <Checkbox
+              checked={allIncluded}
+              indeterminate={!allIncluded && !noneIncluded}
+              onChange={() => setServiceTerm(service.id, allIncluded ? null : 'archera_30d')}
+            />
+          </Tooltip>
+          <Tooltip title={dOpen ? 'Hide resources' : 'Show all resources'}>
+            <IconButton size="small" onClick={() => setOpen((o) => !o)}>
+              <MuiIcon sx={{ fontSize: 20 }}>{dOpen ? 'expand_less' : 'expand_more'}</MuiIcon>
+            </IconButton>
+          </Tooltip>
+        </Stack>
+
+        <Stack direction="row" spacing={1.5} alignItems="center" sx={{ width: COL.info, flexShrink: 0 }}>
+          <CommitmentIcon kind="ri" infraSrc={infraSrc} termId={serviceTerm} size={44} />
+          <Box sx={{ minWidth: 0 }}>
+            <Typography variant="h5" sx={{ color: commitmentTitle(service.name, iconStyleFor(serviceTerm)).color }}>All {service.name}</Typography>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+              {commitmentCount} commitment{commitmentCount === 1 ? '' : 's'} · {allInst.length} resources
+            </Typography>
+            <Stack direction="row" alignItems="center" spacing={0.5} sx={{ mt: 0.25 }}>
+              <Typography variant="caption" color="text.secondary">{fmtMoney(costMo)}/mo</Typography>
+              <Typography variant="caption" sx={{ color: usage.tone, fontWeight: 500 }}>· {usage.label}</Typography>
+            </Stack>
+          </Box>
+        </Stack>
+
+        <Stack direction="row" spacing={1} sx={{ flex: 1 }}>
+          {!hideOnDemand && <OnDemandCell commitment={pseudo} visibleTermIds={visibleTermIds} showRisk />}
+          {visibleTermIds.map((t) => (
+            <OptionCell
+              key={t}
+              commitment={pseudo}
+              termId={t}
+              selected={serviceTerm === t}
+              onSelect={() => setServiceTerm(service.id, t)}
+              showRisk
+            />
+          ))}
+        </Stack>
+      </Stack>
+
+      <Collapse in={dOpen}>
+        <ResourceTable instances={allInst} infraSrc={infraSrc} service={service} selections={selections} query={resourceQuery} title="All resources · read-only" />
+      </Collapse>
+    </Box>
+  );
+}
 
 // ─── Service card ────────────────────────────────────────────────────────────
 
-export default function ServiceCard({ service, selections, setSelection, setServiceTerm, visibleTermIds }) {
-  // Default to By Service when every instance shares one term (uniform plan, e.g.
-  // all 30-day); drop to By Instance when the service starts out mixed.
-  const initialUniform = (() => {
-    const ts = service.instances.map((i) => selections[i.id]).filter(Boolean);
-    return ts.length === service.instances.length && ts.every((t) => t === ts[0]);
-  })();
-  const [view, setView] = useState(service.serverless || initialUniform ? 'service' : 'instance');
+export default function ServiceCard({ service, selections, setCommitmentTerm, setServiceTerm, visibleTermIds, resourceQuery, planView = false }) {
   const m = serviceMetrics(service, selections);
+  const commitments = serviceCommitments(service);
 
-  // The term that is selected on every included instance (for By Service radio state)
+  // Service-wide include state (drives the header checkbox + footer "apply to all")
   const includedTerms = service.instances.map((i) => selections[i.id]).filter(Boolean);
-  const uniformTerm = includedTerms.length === service.instances.length
-    && includedTerms.every((t) => t === includedTerms[0])
-    ? includedTerms[0]
-    : null;
   const allIncluded = includedTerms.length === service.instances.length;
   const noneIncluded = includedTerms.length === 0;
+  const serviceTerm = allIncluded && includedTerms.every((t) => t === includedTerms[0])
+    ? includedTerms[0]
+    : null;
 
-  // Collapse the commitment section when the service drops out of the plan;
-  // reopen when it comes back. The chevron reopens it manually at any time.
+  // Collapse the section when the service drops out of the plan; reopen when it
+  // comes back. The chevron reopens it manually at any time.
   const [expanded, setExpanded] = useState(!noneIncluded);
   useEffect(() => { setExpanded(!noneIncluded); }, [noneIncluded]);
 
-  const nativeAws1yRate = (() => {
-    let s = 0;
-    let c = 0;
-    service.instances.forEach((i) => {
-      s += i.costMo * i.rates.aws_1y;
-      c += i.costMo;
-    });
-    return s / c;
-  })();
+  // Granularity: per line item (default) or one term for the whole service.
+  const [view, setView] = useState('commitment');
 
   return (
     <Box sx={{ bgcolor: palette.surface, border: `1px solid ${color.outlineBorder}`, borderRadius: 1 }}>
@@ -625,129 +842,89 @@ export default function ServiceCard({ service, selections, setSelection, setServ
             onChange={() => setServiceTerm(service.id, allIncluded ? null : 'archera_30d')}
           />
         </Tooltip>
-        <Box
-          sx={{
-            width: 40,
-            height: 40,
-            borderRadius: 1,
-            bgcolor: CSP.bg,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        >
-          <MuiIcon baseClassName="material-icons-outlined" sx={{ fontSize: 22, color: CSP.icon }}>
-            {service.icon}
-          </MuiIcon>
-        </Box>
-        <Box sx={{ flex: 1 }}>
-          <Stack direction="row" spacing={1} alignItems="center">
-            <Typography variant="h5">{service.name}</Typography>
-            <Chip label={service.category} size="small" />
-          </Stack>
-          <Typography variant="caption" color="text.secondary">
-            Covered with {service.commitmentVehicle}
+        <Box component="img" src={SERVICE_ICON[service.id]} alt="" sx={{ width: 38, height: 38, objectFit: 'contain', flexShrink: 0 }} />
+        {/* ds-audit-ignore-start — literal header type sizes per Figma node 151:15296 */}
+        <Box sx={{ flex: 1, minWidth: 0 }}>
+          <Typography sx={{ fontSize: 20, lineHeight: 1.2 }}>
+            <Box component="span" sx={{ fontWeight: 500, color: palette.text.primary }}>{service.name}</Box>
+            <Box component="span" sx={{ fontWeight: 400, color: palette.text.secondary }}>{`  |  ${service.category}`}</Box>
+          </Typography>
+          <Typography sx={{ fontSize: 16, lineHeight: 1.5, color: palette.text.secondary, mt: 0.25 }}>
+            <Box component="span" sx={{ fontWeight: 700 }}>{service.instances.length}</Box>
+            {` resource${service.instances.length === 1 ? '' : 's'} covered by `}
+            <Box component="span" sx={{ fontWeight: 700 }}>{commitments.length}</Box>
+            {` commitment${commitments.length === 1 ? '' : 's'}`}
           </Typography>
         </Box>
-        <Stack direction="row" spacing={1.5} alignItems="center">
-          <HeaderMetricCard
-            label="Current coverage"
-            value={fmtPct(m.currentCoverage)}
-            accent={m.currentCoverage < 0.5 ? semantic.error.main : palette.uiPrimary[500]}
-          />
-          <HeaderMetricCard
-            label="Updated coverage"
-            value={fmtPct(m.projectedCoverage)}
-            accent={semantic.success.main}
-          />
-          <HeaderMetricCard
-            label="Savings"
-            value={fmtMoney(m.savingsMo)}
-            annotation="/mo"
-            accent={semantic.success.main}
-          />
+        <Stack direction="row" spacing={2} alignItems="center">
+          <Box sx={{ textAlign: 'right' }}>
+            <Typography sx={{ fontSize: 14, fontWeight: 500, letterSpacing: '0.15px', color: palette.text.secondary }}>Net Monthly Savings</Typography>
+            <Stack direction="row" spacing={0.5} alignItems="baseline" justifyContent="flex-end">
+              <Typography sx={{ fontSize: 24, fontWeight: 700, color: palette.text.primary }}>{fmtMoney(m.savingsMo)}</Typography>
+              <Typography sx={{ fontSize: 16, fontWeight: 500, color: palette.text.secondary }}>/mo</Typography>
+            </Stack>
+          </Box>
+          <Box sx={{ width: 48, height: 48, borderRadius: '8px', flexShrink: 0, bgcolor: alpha(semantic.success.main, 0.12), display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <MuiIcon baseClassName="material-icons-outlined" sx={{ fontSize: 28, color: semantic.success.main }}>savings</MuiIcon>
+          </Box>
         </Stack>
-        <Tooltip title={expanded ? 'Collapse commitment options' : 'Expand commitment options'}>
+        {/* ds-audit-ignore-end */}
+        <Tooltip title={expanded ? 'Collapse commitments' : 'Expand commitments'}>
           <IconButton size="small" onClick={() => setExpanded((e) => !e)}>
             <MuiIcon sx={{ fontSize: 22 }}>{expanded ? 'expand_less' : 'expand_more'}</MuiIcon>
           </IconButton>
         </Tooltip>
       </Stack>
 
-      <Collapse in={expanded}>
+      {/* Coverage bar stays visible even when the card is minimized */}
       <Box sx={{ px: 2, pb: 1.5 }}>
-        <LinearProgress
-          variant="buffer"
-          color="success"
-          value={m.projectedCoverage * 100}
-          valueBuffer={m.projectedCoverage * 100}
-        />
+        <CoverageBar current={m.currentCoverage} projected={m.projectedCoverage} target={COVERAGE_TARGET} />
       </Box>
 
-      {/* View toggle */}
-      <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ px: 2, pb: 1 }}>
-        {!service.serverless ? (
-          <ToggleButtonGroup
-            size="small"
-            exclusive
-            value={view}
-            onChange={(e, v) => v && setView(v)}
-          >
-            <ToggleButton value="service">By Service</ToggleButton>
-            <ToggleButton value="instance">By Instance</ToggleButton>
-          </ToggleButtonGroup>
-        ) : <Box />}
-        <Typography variant="caption" color="text.secondary">
-          {service.serverless
-            ? 'Serverless — commitments apply to aggregate usage'
-            : `${includedTerms.length} of ${service.instances.length} resources in plan · ${fmtMoney(m.currentCostMo)}/mo on-demand`}
-        </Typography>
-      </Stack>
-
-      {/* Body */}
-      {view === 'service' ? (
-        <>
-        {!uniformTerm && !noneIncluded && (
-          <Box sx={{ px: 2, pb: 1 }}>
-            <Alert severity="info">
-              There are multiple contract types selected by instance. A selection here will update all of those to the same commitment type.
-            </Alert>
-          </Box>
-        )}
-        <Stack direction="row" spacing={1.5} sx={{ p: 2, pt: 0.5 }} useFlexGap flexWrap="wrap">
-          <OnDemandCardLarge service={service} visibleTermIds={visibleTermIds} />
-          {visibleTermIds.map((t) => (
-            <OptionCardLarge
-              key={t}
-              service={service}
-              termId={t}
-              selected={uniformTerm === t}
-              onSelect={() => setServiceTerm(service.id, uniformTerm === t ? null : t)}
-              nativeComparisonRate={t === 'archera_1y' && !visibleTermIds.includes('aws_1y') ? nativeAws1yRate : null}
-            />
-          ))}
-        </Stack>
-        </>
-      ) : (
+      <Collapse in={expanded || Boolean(resourceQuery)}>
+        {/* Comparison table */}
         <Box sx={{ pb: 1 }}>
-          <InstanceTableHeader visibleTermIds={visibleTermIds} />
-          {service.instances.map((i) => (
-            <InstanceRow
-              key={i.id}
-              instance={i}
-              selections={selections}
-              setSelection={setSelection}
-              visibleTermIds={visibleTermIds}
-            />
-          ))}
-          <InstanceTableFooter
-            service={service}
+          <CommitmentTableHeader
             visibleTermIds={visibleTermIds}
-            uniformTerm={uniformTerm}
+            view={view}
+            setView={setView}
+            hideOnDemand={planView}
+            showSelectAll={view === 'commitment'}
+            serviceId={service.id}
+            serviceTerm={serviceTerm}
             setServiceTerm={setServiceTerm}
+            noneIncluded={noneIncluded}
+            commitmentCount={commitments.length}
           />
+          {view === 'commitment' ? (
+            commitments.map((c) => (
+              <CommitmentRow
+                key={c.key}
+                commitment={c}
+                service={service}
+                infraSrc={SERVICE_ICON[service.id]}
+                selections={selections}
+                setCommitmentTerm={setCommitmentTerm}
+                visibleTermIds={visibleTermIds}
+                resourceQuery={resourceQuery}
+                hideOnDemand={planView}
+              />
+            ))
+          ) : (
+            <ServiceAggregateRow
+              service={service}
+              infraSrc={SERVICE_ICON[service.id]}
+              serviceTerm={serviceTerm}
+              allIncluded={allIncluded}
+              noneIncluded={noneIncluded}
+              setServiceTerm={setServiceTerm}
+              visibleTermIds={visibleTermIds}
+              selections={selections}
+              resourceQuery={resourceQuery}
+              hideOnDemand={planView}
+            />
+          )}
         </Box>
-      )}
       </Collapse>
     </Box>
   );

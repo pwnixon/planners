@@ -89,7 +89,10 @@ export const SERVICES = [
     name: 'Amazon EC2',
     category: 'Compute',
     icon: 'memory',
-    commitmentVehicle: 'Guaranteed Reserved Instances (GRIs)',
+    commitmentVehicle: 'Guaranteed Compute Savings Plans (GSPs)',
+    // How this service's usage is covered: a Compute Savings Plan is an
+    // account-level commitment (one line item covering the whole block).
+    coverage: { kind: 'sp', vehicle: 'Guaranteed Compute Savings Plan', account: '093856039998' },
     alreadyCoveredMo: 2440, // covered by existing commitments before this plan
     uncoverableMo: 520, // short-lived / spot-like usage not safe to commit
     instances: [
@@ -109,6 +112,9 @@ export const SERVICES = [
     category: 'Database',
     icon: 'storage',
     commitmentVehicle: 'Guaranteed Reserved Instances (GRIs)',
+    // Reserved Instances are scoped per instance-family · region · engine, so a
+    // service yields one line item per distinct combination.
+    coverage: { kind: 'ri', vehicle: 'RDS Guaranteed RI', account: '093856039998' },
     alreadyCoveredMo: 1860,
     uncoverableMo: 230,
     instances: [
@@ -125,6 +131,7 @@ export const SERVICES = [
     category: 'Cache',
     icon: 'bolt',
     commitmentVehicle: 'Guaranteed Reserved Instances (GRIs)',
+    coverage: { kind: 'ri', vehicle: 'ElastiCache Guaranteed RI', account: '093856039998' },
     alreadyCoveredMo: 905,
     uncoverableMo: 95,
     instances: [
@@ -139,7 +146,8 @@ export const SERVICES = [
     name: 'AWS Lambda',
     category: 'Compute',
     icon: 'functions',
-    commitmentVehicle: 'Guaranteed Savings Plans (GSPs)',
+    commitmentVehicle: 'Guaranteed Compute Savings Plans (GSPs)',
+    coverage: { kind: 'sp', vehicle: 'Guaranteed Compute Savings Plan', account: '093856039998' },
     alreadyCoveredMo: 0,
     uncoverableMo: 140,
     serverless: true, // no per-instance view — coverage applies to aggregate usage
@@ -179,38 +187,60 @@ export function defaultSelections() {
   return sel;
 }
 
+// A commitment is treated as "stable" only when every resource it covers is
+// stable — the term decision is made for the whole block, not per resource.
+const commitmentStable = (c) => c.instances.every((i) => i.stable);
+
 export const PRESETS = {
   recommended: {
     label: 'Recommended',
-    desc: '30-day Guaranteed Commitments on every coverable resource. Exit monthly, $0 at risk — built nightly from your last 7 days of usage.',
-    pick: () => 'archera_30d',
+    term: '30 Days',
+    desc: '30-day Guaranteed Commitments on every coverable commitment. Exit monthly, $0 at risk — built nightly from your last 7 days of usage.',
+    pickC: () => 'archera_30d',
   },
   balanced: {
     label: 'Balanced',
-    desc: '1-year Guaranteed Commitments on workloads with 90+ days of stable usage, 30-day Guaranteed everywhere else.',
-    pick: (i) => (i.stable ? 'archera_1y' : 'archera_30d'),
+    term: '1 Year',
+    desc: '1-year Guaranteed Commitments on blocks with 90+ days of stable usage, 30-day Guaranteed everywhere else.',
+    pickC: (c) => (commitmentStable(c) ? 'archera_1y' : 'archera_30d'),
   },
   high_savings: {
     label: 'High Savings',
-    desc: 'Native 3-year commitments on stable workloads, 1-year Guaranteed elsewhere. Highest rate — longest lock-in.',
-    pick: (i) => (i.stable ? 'aws_3y' : 'archera_1y'),
+    term: '3 Years',
+    desc: 'Native 3-year commitments on stable blocks, 1-year Guaranteed elsewhere. Highest rate — longest lock-in.',
+    pickC: (c) => (commitmentStable(c) ? 'aws_3y' : 'archera_1y'),
     needsNative: true,
   },
 };
 
+// Per-plan summary for the strategy cards: projected net monthly savings + term.
+export function planSummary(presetId, selections) {
+  if (presetId === 'custom') {
+    const m = pageMetrics(selections);
+    const hasAny = Object.values(selections).some(Boolean);
+    return { savings: hasAny ? fmtMoney(m.savingsMo.projected) : '—', term: '—' };
+  }
+  const m = pageMetrics(applyPreset(presetId));
+  return { savings: fmtMoney(m.savingsMo.projected), term: PRESETS[presetId].term };
+}
+
 export function applyPreset(presetId) {
   const preset = PRESETS[presetId];
   const sel = {};
-  ALL_INSTANCES.forEach((i) => { sel[i.id] = preset.pick(i); });
+  allCommitments().forEach((c) => {
+    const term = preset.pickC(c);
+    c.instances.forEach((i) => { sel[i.id] = term; });
+  });
   return sel;
 }
 
 // Which plan do the current selections correspond to? Derived, never stored —
 // editing a predefined plan makes it custom; reverting the edit makes it
-// predefined again (required for automation eligibility).
+// predefined again (required for automation eligibility). Compared at the
+// commitment level, matching how terms are assigned.
 export function detectPlan(selections) {
   const match = Object.entries(PRESETS).find(([, preset]) =>
-    ALL_INSTANCES.every((i) => selections[i.id] === preset.pick(i)));
+    allCommitments().every((c) => commitmentTerm(c, selections) === preset.pickC(c)));
   return match ? match[0] : 'custom';
 }
 
@@ -231,6 +261,193 @@ export function optionFor(instance, termId) {
     breakevenDays: instance.breakevens[termId],
     atRisk,
     guaranteed: term.guaranteed,
+  };
+}
+
+// ─── Commitments (line items) ────────────────────────────────────────────────
+// A commitment groups a block of resources within a service that are covered
+// together under a single term — the unit the user makes term decisions on.
+// Resources roll up via their `commitment` field; the instance list is the
+// (read-only) drill-down beneath each commitment.
+
+// Instance family from a type string: 'db.r6g.xlarge' → 'db.r6g',
+// 'cache.t4g.small' → 'cache.t4g'. (RIs are size-flexible within a family.)
+function familyOf(type) {
+  const parts = type.split('.');
+  return parts.length >= 3 ? parts.slice(0, -1).join('.') : type;
+}
+
+// Commitments are grouped by the cloud's own constructs, mirroring the live
+// commitment grid:
+//   • Savings Plans (kind 'sp') — one account-level line item covering the block.
+//   • Reserved Instances (kind 'ri') — one line item per instance-family · region · engine.
+export function serviceCommitments(service) {
+  const cov = service.coverage;
+  if (cov.kind === 'sp') {
+    return [{
+      key: `${service.id}:sp`,
+      vehicle: cov.vehicle,
+      kind: 'sp',
+      scope: `Archera Managed Account: ${cov.account}`,
+      account: cov.account,
+      instances: service.instances,
+    }];
+  }
+  const order = [];
+  const byKey = {};
+  service.instances.forEach((i) => {
+    const fam = familyOf(i.type);
+    const gk = `${fam}|${i.region}|${i.platform}`;
+    if (!byKey[gk]) {
+      byKey[gk] = {
+        key: `${service.id}:${gk}`,
+        vehicle: cov.vehicle,
+        kind: 'ri',
+        scope: `${fam} · ${i.region} · ${i.platform}`,
+        account: cov.account,
+        instances: [],
+      };
+      order.push(gk);
+    }
+    byKey[gk].instances.push(i);
+  });
+  return order.map((k) => byKey[k]);
+}
+
+// Every commitment across all services — the unit presets and plan detection
+// operate on (term decisions live at the commitment level, not per resource).
+export function allCommitments() {
+  return SERVICES.flatMap((s) => serviceCommitments(s));
+}
+
+// Aggregate a single term option across a block of resources (commitment- or
+// service-level). Mirrors optionFor but summed, with cost-weighted breakeven.
+export function aggregateOption(instances, termId) {
+  let savingsMo = 0;
+  let costMo = 0;
+  let commitCostMo = 0;
+  let atRisk = 0;
+  let beWeighted = 0;
+  instances.forEach((i) => {
+    const o = optionFor(i, termId);
+    savingsMo += o.savingsMo;
+    costMo += i.costMo;
+    commitCostMo += o.commitCostMo;
+    atRisk += o.atRisk;
+    beWeighted += o.breakevenDays * i.costMo;
+  });
+  return {
+    termId,
+    savingsMo,
+    costMo,
+    commitCostMo,
+    atRisk,
+    rate: costMo ? savingsMo / costMo : 0,
+    breakevenDays: costMo ? beWeighted / costMo : 0,
+    guaranteed: TERMS[termId].guaranteed,
+  };
+}
+
+// The single term applied across a commitment's resources:
+//   null    → excluded (on-demand)
+//   'mixed' → resources are on different terms (shouldn't happen via the UI)
+//   termId  → the uniform term covering the block
+export function commitmentTerm(commitment, selections) {
+  const terms = commitment.instances.map((i) => selections[i.id]);
+  const included = terms.filter(Boolean);
+  if (included.length === 0) return null;
+  if (included.length === terms.length && included.every((t) => t === included[0])) return included[0];
+  return 'mixed';
+}
+
+// Does a resource match a free-text query (name / type / platform / region / id)?
+export function resourceMatches(instance, query) {
+  const q = (query || '').trim().toLowerCase();
+  if (!q) return true;
+  return [instance.name, instance.type, instance.platform, instance.region, instance.resourceId]
+    .some((f) => String(f).toLowerCase().includes(q));
+}
+
+// Number of commitments (line items) actually in the plan — the user-facing count.
+export function planCommitmentCount(selections) {
+  return allCommitments().filter((c) => commitmentTerm(c, selections) !== null).length;
+}
+
+// Cloud API service names for the commitment detail popover.
+const API_NAME = { ec2: 'AmazonEC2', rds: 'AmazonRDS', elasticache: 'AmazonElastiCache', lambda: 'AWSLambda' };
+
+// Deterministic pseudo-UUID for a commitment's "Line Item API ID" (no Math.random
+// so renders are stable / resumable).
+function lineId(key) {
+  let h = 0;
+  for (let i = 0; i < key.length; i += 1) h = (h * 31 + key.charCodeAt(i)) >>> 0;
+  const hex = (n) => (n >>> 0).toString(16).padStart(8, '0');
+  const a = hex(h);
+  const b = hex(h * 2654435761);
+  const c = hex(h ^ 0x9e3779b9);
+  const d = hex(h + 0x7f4a7c15);
+  return `${a}-${b.slice(0, 4)}-${b.slice(4, 8)}-${c.slice(0, 4)}-${c.slice(4, 8)}${d.slice(0, 4)}`;
+}
+
+// Detail rows for a commitment's hover popover — key/value pairs of everything
+// relevant to the line item, mirroring the live commitment-grid detail card.
+export function commitmentDetail(commitment, service) {
+  const account = commitment.account;
+  if (commitment.kind === 'sp') {
+    return {
+      account,
+      subline: null,
+      rows: [
+        { label: 'Account ID', value: account, account: true },
+        { label: 'Type', value: 'aws/savingsplan/Compute' },
+        { label: 'Plan', value: 'Compute' },
+        { label: 'Payment Option', value: 'No Upfront' },
+        { label: 'Commitment Kind', value: commitment.vehicle },
+        { label: 'Instance Size Flexible', value: 'No' },
+        { label: 'Line Item API ID', value: lineId(commitment.key) },
+      ],
+    };
+  }
+  const i0 = commitment.instances[0];
+  const fam = familyOf(i0.type);
+  return {
+    account,
+    subline: `${i0.type} | ${i0.region} | ${i0.platform} | Single-AZ`,
+    riFooter: true,
+    rows: [
+      { label: 'Account ID', value: account, account: true },
+      { label: 'Region', value: i0.region },
+      { label: 'Type', value: `aws/${API_NAME[service.id] || service.name}` },
+      { label: 'Instance Type', value: i0.type },
+      { label: 'Instance Family', value: fam },
+      { label: 'Product Description', value: i0.platform },
+      { label: 'AZ Type', value: 'Single-AZ' },
+      { label: 'Payment Option', value: 'No Upfront' },
+      { label: 'Commitment Kind', value: commitment.vehicle },
+      { label: 'Instance Size Flexible', value: 'Yes' },
+      { label: 'Line Item API ID', value: lineId(commitment.key) },
+    ],
+  };
+}
+
+// Detail rows for an individual resource's hover popover — same key/value shape
+// as the commitment detail, scoped to one instance.
+export function resourceDetail(instance, service) {
+  const account = service && service.coverage ? service.coverage.account : null;
+  return {
+    account,
+    subline: `${instance.type} | ${instance.region} | ${instance.platform}`,
+    rows: [
+      ...(account ? [{ label: 'Account ID', value: account, account: true }] : []),
+      { label: 'Region', value: instance.region },
+      { label: 'Type', value: `aws/${(service && API_NAME[service.id]) || (service && service.name) || ''}` },
+      { label: 'Instance Type', value: instance.type },
+      { label: 'Instance Family', value: familyOf(instance.type) },
+      { label: 'Product Description', value: instance.platform },
+      { label: 'On-Demand Cost', value: `${fmtMoney(instance.costMo)}/mo` },
+      { label: 'Usage', value: instance.stable ? 'Stable (90+ days)' : 'Variable' },
+      { label: 'Resource ID', value: instance.resourceId },
+    ],
   };
 }
 
@@ -363,8 +580,8 @@ export const KPI_CATALOG = [
   },
   {
     id: 'monthlySavings',
-    label: 'Monthly Savings',
-    noun: 'Monthly Savings',
+    label: 'Net Monthly Savings',
+    noun: 'Net Monthly Savings',
     group: 'Essentials',
     icon: 'savings',
     unit: '/mo',
@@ -538,7 +755,7 @@ export const KPI_CATALOG = [
   },
   {
     id: 'annualized',
-    label: 'Annualized Savings Run-Rate',
+    label: 'Annualized Net Savings Run-Rate',
     noun: 'Annual Run-Rate',
     group: 'Executive',
     icon: 'trending_up',

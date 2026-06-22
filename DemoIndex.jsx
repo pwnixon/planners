@@ -9,16 +9,23 @@ const PROJECT = {
 
 const DEMOS = [
   {
-    demo: "default",
-    title: "Commitment Planner (returning user)",
-    desc: "Prefilled builder: KPI strip with configurable library, strategy presets, per-service and per-instance term selection with risk-framed option cards.",
+    demo: "builder",
+    title: "Commitment Planner — Builder view",
+    desc: "The full custom plan builder: configurable KPI strip, the commitment grid with per-commitment term selection, drill-downs, and coverage bars.",
     version: "v1",
     status: "live",
   },
   {
+    demo: "plan",
+    title: "Commitment Planner — Plan view",
+    desc: "Simpler, plan-forward variant (a duplicate of the builder for now) — will feature the strategy plans prominently with a condensed summary.",
+    version: "v1",
+    status: "wip",
+  },
+  {
     demo: "briefing",
     title: "First-run analysis briefing",
-    desc: "For users with no actioned plan: 3-step analysis briefing (data-bound findings) that resolves into the prefilled builder.",
+    desc: "For users with no actioned plan: 3-step analysis briefing (data-bound findings) that resolves into the builder view.",
     version: "v1",
     status: "live",
   },
