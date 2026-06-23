@@ -117,7 +117,7 @@ export default function StrategyCard({
         <Box sx={{ bgcolor: palette.surface, p: 1 }}>
           <Stack direction="row" justifyContent="flex-end" spacing={1}>
             {isCustom && (
-              <Button variant="outlined" startIcon={<MuiIcon sx={{ fontSize: 16 }}>settings</MuiIcon>} onClick={(e) => { e.stopPropagation(); onConfigure?.(); }}>
+              <Button variant="outlined" startIcon={<MuiIcon>settings</MuiIcon>} onClick={(e) => { e.stopPropagation(); onConfigure?.(); }}>
                 Configure
               </Button>
             )}
@@ -162,7 +162,7 @@ export default function StrategyCard({
           {isCustom ? (
             <>
               <Button size="small" variant="outlined" disabled onClick={(e) => { e.stopPropagation(); onSave?.(); }}>Save</Button>
-              <Button size="small" variant="outlined" startIcon={<MuiIcon sx={{ fontSize: 14 }}>settings</MuiIcon>} onClick={(e) => { e.stopPropagation(); onConfigure?.(); }}>Configure</Button>
+              <Button size="small" variant="outlined" startIcon={<MuiIcon>settings</MuiIcon>} onClick={(e) => { e.stopPropagation(); onConfigure?.(); }}>Configure</Button>
             </>
           ) : (
             <Button size="small" variant="outlined" onClick={(e) => { e.stopPropagation(); onSelect?.(); }}>View Plan</Button>
