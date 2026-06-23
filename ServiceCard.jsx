@@ -877,6 +877,9 @@ export default function ServiceCard({ service, selections, setCommitmentTerm, se
     if (firstPlanRun.current) { firstPlanRun.current = false; return; }
     if (planView) setPlanOpen(compareMode && !noneIncluded);
   }, [planView, compareMode]);
+  // Unchecking the service (or its last commitment) collapses the card. Re-checking
+  // doesn't auto-open it — it can still be toggled open manually.
+  useEffect(() => { if (planView && noneIncluded) setPlanOpen(false); }, [planView, noneIncluded]);
   const open = planView ? planOpen : expanded;
   const showSummary = planView && !compareMode; // summary columns vs term comparison
 

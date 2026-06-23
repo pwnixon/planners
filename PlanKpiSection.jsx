@@ -69,7 +69,7 @@ export default function PlanKpiSection({ metrics, tone = 'recommended' }) {
   const accent = planColor(tone);
   // These KPIs are supplementary to the plan card's headline metrics, so they're
   // hidden by default; a toggle reveals them on demand to keep the page uncluttered.
-  const [show, setShow] = useState(false);
+  const [show, setShow] = useState(true);
 
   // Brief opacity dip when the metrics change (plan switch / edit), mirroring
   // KpiSection so the cards visibly signal they're recomputing. Skip first mount.
