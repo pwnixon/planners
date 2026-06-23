@@ -113,9 +113,8 @@ function RadioCellFrame({ selected, borderColor, bg, onClick, tooltip, radio = t
           px: 1.5,
           py: 1,
           cursor: onClick ? 'pointer' : 'default',
-          flex: 1,
-          minWidth: COL.option,
-          maxWidth: COL.optionMax,
+          width: COL.optionMax,
+          flexShrink: 0,
           display: 'flex',
           flexDirection: 'column',
           gap: 0.5,
@@ -146,22 +145,25 @@ function RadioCellFrame({ selected, borderColor, bg, onClick, tooltip, radio = t
 }
 
 // One term option for a commitment — aggregated across its resources.
-function OptionCell({ commitment, termId, selected, onSelect, showRisk }) {
+function OptionCell({ commitment, termId, selected, onSelect, showRisk, planView = false }) {
   const opt = aggregateOption(commitment.instances, termId);
   const term = TERMS[termId];
   const risk = riskParts(opt);
   const riskColor = term.guaranteed ? semantic.success.dark : semantic.warning.dark;
+  // Plan view de-emphasizes unselected options: no border, light-grey fill, neutral savings.
   return (
     <RadioCellFrame
       selected={selected}
       borderColor={selected
         ? (term.guaranteed ? palette.brandPrimary[300] : palette.warning[300])
-        : color.outlineBorder}
-      bg={selected ? (term.guaranteed ? selectedBg : selectedBgNative) : palette.surface}
+        : (planView ? 'transparent' : color.outlineBorder)}
+      bg={selected
+        ? (term.guaranteed ? selectedBg : selectedBgNative)
+        : (planView ? alpha(palette.neutral[50], 0.7) : palette.surface)}
       onClick={onSelect} // selecting a term always sets it — exclude via the row checkbox, not the radio
       tooltip={optionTooltip(commitment, opt)}
     >
-      <Typography variant="h6" sx={{ color: semantic.success.dark }}>
+      <Typography variant="h6" sx={{ color: (planView && !selected) ? palette.text.primary : semantic.success.dark }}>
         +{fmtMoney(opt.savingsMo)}/mo
       </Typography>
       <CellRow label="Savings Rate" value={fmtPct(opt.rate)} />
@@ -239,6 +241,7 @@ function SelectAllRadio({ selected, onClick, title, tone = palette.uiPrimary[500
 function CommitmentTableHeader({
   visibleTermIds, view, setView, hideOnDemand = false,
   showSelectAll = false, serviceId, serviceTerm, setServiceTerm, noneIncluded, commitmentCount = 0,
+  planView = false,
 }) {
   return (
     <Stack
@@ -247,15 +250,23 @@ function CommitmentTableHeader({
       alignItems="flex-end"
       sx={{ px: 2, pt: 1, borderTop: `1px solid ${color.divider}`, bgcolor: palette.surface }}
     >
-      <Box sx={{ width: COL.lead + COL.info, flexShrink: 0, pb: 1 }}>
-        <ToggleButtonGroup size="small" exclusive value={view} onChange={(e, v) => v && setView(v)}>
-          <ToggleButton value="commitment">By Commitment</ToggleButton>
-          <ToggleButton value="service">By Service</ToggleButton>
-        </ToggleButtonGroup>
+      <Box sx={{ flex: 1, minWidth: COL.lead + COL.info, pb: 1 }}>
+        {planView ? (
+          // Align the label over the commitment-name column, past the checkbox/chevron.
+          <Stack direction="row" spacing={1.5}>
+            <Box sx={{ width: COL.lead, flexShrink: 0 }} />
+            <Typography variant="h6" color="text.secondary">Commitment</Typography>
+          </Stack>
+        ) : (
+          <ToggleButtonGroup size="small" exclusive value={view} onChange={(e, v) => v && setView(v)}>
+            <ToggleButton value="commitment">By Commitment</ToggleButton>
+            <ToggleButton value="service">By Service</ToggleButton>
+          </ToggleButtonGroup>
+        )}
       </Box>
-      <Stack direction="row" spacing={1} alignItems="flex-end" sx={{ flex: 1 }}>
+      <Stack direction="row" spacing={1} alignItems="flex-end">
         {!hideOnDemand && (
-        <Box sx={{ flex: 1, minWidth: COL.option, maxWidth: COL.optionMax, px: 1.5, pb: 1 }}>
+        <Box sx={{ width: COL.optionMax, flexShrink: 0, px: 1.5, pb: 1 }}>
           <Typography variant="micro" color="text.secondary" sx={{ display: 'block' }}>NO COMMITMENT</Typography>
           <Typography variant="h6" sx={{ color: semantic.error.dark }}>On-Demand</Typography>
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>net savings /mo</Typography>
@@ -265,7 +276,7 @@ function CommitmentTableHeader({
           const term = TERMS[t];
           const lockDate = term.lockLabel.replace(/^Locked until /, '');
           return (
-            <Box key={t} sx={{ flex: 1, minWidth: COL.option, maxWidth: COL.optionMax, px: 1.5, pb: 1 }}>
+            <Box key={t} sx={{ width: COL.optionMax, flexShrink: 0, px: 1.5, pb: 1 }}>
               <Typography variant="micro" color="text.secondary" sx={{ display: 'block' }}>
                 {term.guaranteed ? 'GUARANTEED' : 'NON-GUARANTEED'}
               </Typography>
@@ -616,7 +627,7 @@ function ResourceDetailPopover({ instance, service, infraSrc }) {
 
 // ─── Commitment row ──────────────────────────────────────────────────────────
 
-function CommitmentRow({ commitment, service, infraSrc, selections, setCommitmentTerm, visibleTermIds, resourceQuery, hideOnDemand }) {
+function CommitmentRow({ commitment, service, infraSrc, selections, setCommitmentTerm, visibleTermIds, resourceQuery, hideOnDemand, planView }) {
   const [open, setOpen] = useState(false);
   const ct = commitmentTerm(commitment, selections);
   const included = ct !== null;
@@ -658,7 +669,7 @@ function CommitmentRow({ commitment, service, infraSrc, selections, setCommitmen
           interactive
           content={<CommitmentDetailPopover commitment={commitment} service={service} termId={ct} infraSrc={infraSrc} />}
         >
-        <Stack direction="row" spacing={1.25} alignItems="flex-start" sx={{ width: COL.info, flexShrink: 0, cursor: 'default' }}>
+        <Stack direction="row" spacing={1.25} alignItems="flex-start" sx={{ flex: 1, minWidth: COL.info, cursor: 'default' }}>
           <Box sx={{ mt: 0.25 }}>
             <CommitmentIcon kind={commitment.kind} infraSrc={infraSrc} termId={ct} size={32} />
           </Box>
@@ -676,7 +687,7 @@ function CommitmentRow({ commitment, service, infraSrc, selections, setCommitmen
         </HoverPopover>
 
         {/* Term comparison */}
-        <Stack direction="row" spacing={1} sx={{ flex: 1 }}>
+        <Stack direction="row" spacing={1}>
           {!hideOnDemand && <OnDemandCell commitment={commitment} visibleTermIds={visibleTermIds} showRisk={false} />}
           {visibleTermIds.map((t) => (
             <OptionCell
@@ -686,6 +697,7 @@ function CommitmentRow({ commitment, service, infraSrc, selections, setCommitmen
               selected={ct === t}
               onSelect={() => setCommitmentTerm(ids, t)}
               showRisk={false}
+              planView={planView}
             />
           ))}
         </Stack>
@@ -769,7 +781,7 @@ function ServiceAggregateRow({ service, infraSrc, serviceTerm, allIncluded, none
           </Tooltip>
         </Stack>
 
-        <Stack direction="row" spacing={1.5} alignItems="center" sx={{ width: COL.info, flexShrink: 0 }}>
+        <Stack direction="row" spacing={1.5} alignItems="center" sx={{ flex: 1, minWidth: COL.info }}>
           <CommitmentIcon kind="ri" infraSrc={infraSrc} termId={serviceTerm} size={44} />
           <Box sx={{ minWidth: 0 }}>
             <Typography variant="h5" sx={{ color: commitmentTitle(service.name, iconStyleFor(serviceTerm)).color }}>All {service.name}</Typography>
@@ -783,7 +795,7 @@ function ServiceAggregateRow({ service, infraSrc, serviceTerm, allIncluded, none
           </Box>
         </Stack>
 
-        <Stack direction="row" spacing={1} sx={{ flex: 1 }}>
+        <Stack direction="row" spacing={1}>
           {!hideOnDemand && <OnDemandCell commitment={pseudo} visibleTermIds={visibleTermIds} showRisk />}
           {visibleTermIds.map((t) => (
             <OptionCell
@@ -941,6 +953,7 @@ export default function ServiceCard({ service, selections, setCommitmentTerm, se
             view={view}
             setView={setView}
             hideOnDemand={planView}
+            planView={planView}
             showSelectAll={view === 'commitment'}
             serviceId={service.id}
             serviceTerm={serviceTerm}
@@ -960,6 +973,7 @@ export default function ServiceCard({ service, selections, setCommitmentTerm, se
                 visibleTermIds={visibleTermIds}
                 resourceQuery={resourceQuery}
                 hideOnDemand={planView}
+                planView={planView}
               />
             ))
           ) : (

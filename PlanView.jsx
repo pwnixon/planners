@@ -399,7 +399,7 @@ export default function PlanView() {
             </Typography>
           </Stack>
           <Collapse in={compare}>
-            <Stack direction="row" alignItems="center" spacing={1} useFlexGap flexWrap="wrap" sx={{ mt: 1.5 }}>
+            <Stack direction="row" alignItems="center" spacing={1} useFlexGap flexWrap="wrap" sx={{ mt: 1.5, bgcolor: palette.surface, border: `1px solid ${color.outlineBorder}`, borderRadius: 1, px: 2, py: 1 }}>
               <Typography variant="subtitle2" sx={{ textTransform: 'none' }}>Comparison term lengths:</Typography>
               {TERM_LENGTHS.map((length) => (
                 <Tooltip key={length.id} title="Show or hide commitments at this term length across all resources.">
