@@ -12,7 +12,7 @@ const bp = palette.brandPrimary;
 const bt = palette.brandTertiary;  // pink / salmon
 const bs = palette.brandSecondary; // light blue / cyan
 // Inactive cards get a soft tint from the same color family as their active gradient.
-const lightGrad = (p) => `linear-gradient(160deg, ${palette.surface} 0%, ${alpha(p[50], 0.45)} 100%)`;
+const lightGrad = (p) => `linear-gradient(160deg, ${palette.neutral.white} 0%, ${alpha(p[50], 0.85)} 100%)`;
 const CARD_TONE = {
   recommended: { grad: `linear-gradient(115deg, ${bp[900]} 0%, ${bp[800]} 32%, ${bp[600]} 78%, ${bp[500]} 100%)`, light: lightGrad(bp), status: bp[500], statusDark: bp[700], termValue: bp[700], termLabel: bp[900] },
   balanced:    { grad: `linear-gradient(115deg, ${bp[900]} 0%, ${bp[900]} 24%, ${bt[800]} 66%, ${bt[600]} 100%)`, light: lightGrad(bt), status: bt[600], statusDark: bt[800], termValue: bt[700], termLabel: bt[900] },
@@ -69,10 +69,10 @@ function MetricRow({ label, value }) {
   return (
     <Stack direction="row" alignItems="center" spacing={1}>
       <Stack direction="row" spacing={0.5} alignItems="center" sx={{ flex: 1, minWidth: 0 }}>
-        <Typography variant="body1" color="text.secondary">{label}</Typography>
+        <Typography variant="body1" color="text.primary">{label}</Typography>
         <InfoIcon sx={{ color: palette.text.secondary }} />
       </Stack>
-      <Typography variant="body1" sx={{ fontWeight: 700, color: palette.text.secondary }}>{value}</Typography>
+      <Typography variant="body1" sx={{ color: palette.text.primary }}>{value}</Typography>
     </Stack>
   );
 }
@@ -151,7 +151,7 @@ export default function StrategyCard({
           </Stack>
           <Typography variant="body1" color="text.secondary">{desc}</Typography>
         </Box>
-        <Stack spacing={0.5}>
+        <Stack spacing={1}>
           <MetricRow label="Net Monthly Savings" value={savings} />
           <Divider />
           <MetricRow label="Term Length" value={term} />
