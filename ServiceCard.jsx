@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import {
   Box, Stack, Typography, Tooltip, Checkbox, IconButton, Collapse,
   Divider, Link, ToggleButton, ToggleButtonGroup,
-  TextField, InputAdornment, Pagination, Icon as MuiIcon,
+  TablePagination, Icon as MuiIcon,
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
 import palette from '@archera/design-system/palettes/archera-palette';
@@ -12,7 +12,7 @@ import HoverPopover from './HoverPopover';
 import CommitmentIcon, { iconStyleFor } from './CommitmentIcon';
 import { SERVICE_ICON } from './serviceIcons';
 import {
-  TERMS, optionFor, serviceMetrics, sparkPoints, fmtMoney, fmtPct,
+  TERMS, optionFor, serviceMetrics, sparkPoints, fmtMoney, fmtPct, fmtDays,
   serviceCommitments, aggregateOption, commitmentTerm, commitmentDetail, resourceDetail,
   resourceMatches, COVERAGE_TARGET,
 } from './data';
@@ -26,7 +26,10 @@ const onDemandBg = alpha(semantic.error.light, 0.2);
 
 // Column geometry — shared by the header, commitment rows, and footer so the
 // term-comparison cells line up. `lead` holds the checkbox + drill chevron.
-const COL = { lead: 76, info: 300, option: 168, optionMax: 230 };
+const COL = { lead: 44, info: 300, option: 168, optionMax: 230 };
+const SCOL = 140; // plan-view summary column width
+const CHEV = 40;  // right-edge expand/collapse chevron column
+const HOVER_BG = alpha(palette.neutral.black, 0.03); // light row/header hover
 
 // CSP brand colors — cloud-brand, not in Archera palette (mirrors AppShell PROVIDER constants)
 // text: brand orange darkened for readability on light backgrounds
@@ -105,7 +108,7 @@ function RadioCellFrame({ selected, borderColor, bg, onClick, tooltip, radio = t
   return (
     <HoverPopover content={tooltip}>
       <Box
-        onClick={onClick}
+        onClick={onClick ? (e) => { e.stopPropagation(); onClick(); } : undefined}
         sx={{
           position: 'relative',
           border: `1px solid ${borderColor}`,
@@ -311,6 +314,30 @@ function CommitmentTableHeader({
           );
         })}
       </Stack>
+      <Box sx={{ width: CHEV, flexShrink: 0 }} />
+    </Stack>
+  );
+}
+
+// ─── Plan-view summary header ────────────────────────────────────────────────
+// Column labels for the per-commitment summary (shown when a plan-view card is
+// opened via "View" and Compare terms is off).
+function SummaryHeader() {
+  const cols = ['Net Savings/mo', 'Cost/mo', 'Breakeven', 'Resources'];
+  return (
+    <Stack direction="row" spacing={1.5} alignItems="flex-end" sx={{ px: 2, pt: 1, borderTop: `1px solid ${color.divider}`, bgcolor: palette.surface }}>
+      <Box sx={{ flex: 1, minWidth: COL.lead + COL.info, pb: 1 }}>
+        <Stack direction="row" spacing={1.5}>
+          <Box sx={{ width: COL.lead, flexShrink: 0 }} />
+          <Typography variant="h6" color="text.secondary">Commitment</Typography>
+        </Stack>
+      </Box>
+      <Stack direction="row" spacing={1} alignItems="flex-end">
+        {cols.map((c) => (
+          <Typography key={c} variant="h6" color="text.secondary" sx={{ width: SCOL, flexShrink: 0, px: 1.5, pb: 1, textAlign: 'right' }}>{c}</Typography>
+        ))}
+      </Stack>
+      <Box sx={{ width: CHEV, flexShrink: 0 }} />
     </Stack>
   );
 }
@@ -383,17 +410,11 @@ function SortHeader({ label, sortKey, sort, setSort, width }) {
 // Reusable read-only resource table — sortable, searchable + paginated. Used by
 // both the commitment drill-down (a line item can cover thousands of resources)
 // and the service drill-down (all of the service's resources).
-function ResourceTable({ instances, infraSrc, service, selections, title = 'Covered resources · read-only', pageSize = 5 }) {
-  const [query, setQuery] = useState('');
+function ResourceTable({ instances, infraSrc, service, selections, pageSize = 5 }) {
   const [page, setPage] = useState(1);
   const [sort, setSort] = useState({ key: null, dir: 'desc' });
 
-  const rows = instances.map((i) => resourceRow(i, selections));
-  const q = query.trim().toLowerCase();
-  const showSearch = instances.length > pageSize;
-  let view = q
-    ? rows.filter(({ i }) => [i.name, i.type, i.platform, i.region, i.resourceId].some((f) => f.toLowerCase().includes(q)))
-    : rows;
+  let view = instances.map((i) => resourceRow(i, selections));
   if (sort.key) {
     const acc = {
       name: (r) => r.i.name, before: (r) => r.beforeHr, after: (r) => r.afterHr,
@@ -411,7 +432,7 @@ function ResourceTable({ instances, infraSrc, service, selections, title = 'Cove
   const pageItems = view.slice((current - 1) * pageSize, current * pageSize);
 
   return (
-    <Box sx={{ bgcolor: palette.neutral[50], borderTop: `1px solid ${color.divider}`, p: '2px 4px 4px' }}>
+    <Box sx={{ bgcolor: palette.neutral[50], borderTop: `1px solid ${color.divider}`, p: '1px 6px 6px' }}>
       <Box
         sx={{
           bgcolor: palette.surface,
@@ -422,41 +443,16 @@ function ResourceTable({ instances, infraSrc, service, selections, title = 'Cove
           overflow: 'hidden',
         }}
       >
-      <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ px: 2, pt: 1, pb: 0.5, gap: 1 }}>
-        <Typography variant="overline" color="text.secondary">{title}</Typography>
-        <Stack direction="row" spacing={1.5} alignItems="center">
-          {showSearch && (
-            <Box sx={{ width: 220 }}>
-              <TextField
-                fullWidth
-                size="small"
-                placeholder="Search resources"
-                value={query}
-                onChange={(e) => { setQuery(e.target.value); setPage(1); }}
-                InputProps={{
-                  startAdornment: (
-                    <InputAdornment position="start">
-                      <MuiIcon baseClassName="material-icons-outlined" sx={{ fontSize: 18 }}>search</MuiIcon>
-                    </InputAdornment>
-                  ),
-                }}
-              />
-            </Box>
-          )}
-          <Typography variant="caption" color="text.secondary">
-            {q ? `${view.length} of ${instances.length}` : instances.length} resource{instances.length === 1 ? '' : 's'}
-          </Typography>
-        </Stack>
-      </Stack>
-
       {/* Column headers */}
-      <Stack direction="row" spacing={1.5} alignItems="center" sx={{ px: 2, py: 0.5, borderBottom: `1px solid ${color.divider}` }}>
+      <Stack direction="row" spacing={1.5} alignItems="center" sx={{ px: 2, py: 1.25, borderBottom: `1px solid ${color.divider}` }}>
+        {/* Lead spacer so resource content lines up under the commitment name */}
+        <Box sx={{ width: COL.lead, flexShrink: 0 }} />
         <SortHeader label="Resource" sortKey="name" sort={sort} setSort={setSort} />
         <SortHeader label="Before Rate" sortKey="before" sort={sort} setSort={setSort} width={RCOL.rate} />
         <SortHeader label="After Rate" sortKey="after" sort={sort} setSort={setSort} width={RCOL.rate} />
-        <SortHeader label="Net Monthly Savings" sortKey="savings" sort={sort} setSort={setSort} width={RCOL.savings} />
-        <SortHeader label="Monthly Cost" sortKey="cost" sort={sort} setSort={setSort} width={RCOL.cost} />
-        <SortHeader label="% Instance Covered" sortKey="covered" sort={sort} setSort={setSort} width={RCOL.covered} />
+        <SortHeader label="Net Savings/mo" sortKey="savings" sort={sort} setSort={setSort} width={RCOL.savings} />
+        <SortHeader label="Cost/mo" sortKey="cost" sort={sort} setSort={setSort} width={RCOL.cost} />
+        <SortHeader label="Coverage" sortKey="covered" sort={sort} setSort={setSort} width={RCOL.covered} />
         <Typography variant="body2" color="text.secondary" sx={{ width: RCOL.usage, flexShrink: 0, whiteSpace: 'nowrap' }}>Historical Usage</Typography>
       </Stack>
 
@@ -466,8 +462,9 @@ function ResourceTable({ instances, infraSrc, service, selections, title = 'Cove
           direction="row"
           spacing={1.5}
           alignItems="center"
-          sx={{ px: 2, py: 1, borderTop: idx ? `1px solid ${color.divider}` : 'none' }}
+          sx={{ px: 2, py: 1, borderTop: idx ? `1px solid ${color.divider}` : 'none', '&:hover': { bgcolor: HOVER_BG } }}
         >
+          <Box sx={{ width: COL.lead, flexShrink: 0 }} />
           <HoverPopover placement="left-start" interactive content={<ResourceDetailPopover instance={r.i} service={service} infraSrc={infraSrc} />}>
           <Stack direction="row" spacing={1.25} alignItems="center" sx={{ flex: 1, minWidth: 0, cursor: 'default' }}>
             <Box component="img" src={infraSrc} alt="" sx={{ width: 22, height: 22, objectFit: 'contain', flexShrink: 0 }} />
@@ -496,16 +493,15 @@ function ResourceTable({ instances, infraSrc, service, selections, title = 'Cove
           <Box sx={{ width: RCOL.usage, flexShrink: 0 }}><MiniSparkline instance={r.i} /></Box>
         </Stack>
       ))}
-      {view.length === 0 && (
-        <Typography variant="body2" color="text.secondary" sx={{ px: 2, py: 1.5 }}>
-          No resources match “{query}”.
-        </Typography>
-      )}
-
       {pages > 1 && (
-        <Box sx={{ display: 'flex', justifyContent: 'center', py: 1 }}>
-          <Pagination size="small" count={pages} page={current} onChange={(e, v) => setPage(v)} />
-        </Box>
+        <TablePagination
+          component="div"
+          count={view.length}
+          page={current - 1}
+          onPageChange={(e, p) => setPage(p + 1)}
+          rowsPerPage={pageSize}
+          rowsPerPageOptions={[]}
+        />
       )}
       </Box>
     </Box>
@@ -627,7 +623,7 @@ function ResourceDetailPopover({ instance, service, infraSrc }) {
 
 // ─── Commitment row ──────────────────────────────────────────────────────────
 
-function CommitmentRow({ commitment, service, infraSrc, selections, setCommitmentTerm, visibleTermIds, resourceQuery, hideOnDemand, planView }) {
+function CommitmentRow({ commitment, service, infraSrc, selections, setCommitmentTerm, visibleTermIds, resourceQuery, hideOnDemand, planView, summary = false }) {
   const [open, setOpen] = useState(false);
   const ct = commitmentTerm(commitment, selections);
   const included = ct !== null;
@@ -645,20 +641,21 @@ function CommitmentRow({ commitment, service, infraSrc, selections, setCommitmen
 
   return (
     <Box sx={{ borderTop: `1px solid ${color.divider}` }}>
-      <Stack direction="row" spacing={1.5} alignItems="center" sx={{ py: 1, px: 2 }}>
-        {/* Lead: include/exclude + drill chevron */}
+      <Stack
+        direction="row" spacing={1.5} alignItems="center"
+        onClick={() => setOpen((o) => !o)}
+        sx={{ py: 1, px: 2, cursor: 'pointer', '&:hover': { bgcolor: HOVER_BG } }}
+      >
+        {/* Lead: include/exclude (chevron moved to the right edge) */}
         <Stack direction="row" alignItems="center" sx={{ width: COL.lead, flexShrink: 0 }}>
           <Tooltip title={included ? 'Exclude this commitment — its resources stay on-demand' : 'Include this commitment (30-day Guaranteed)'}>
             <Checkbox
+              size="small"
               checked={included}
               indeterminate={ct === 'mixed'}
+              onClick={(e) => e.stopPropagation()}
               onChange={() => setCommitmentTerm(ids, included ? null : 'archera_30d')}
             />
-          </Tooltip>
-          <Tooltip title={dOpen ? 'Hide covered resources' : 'Show covered resources'}>
-            <IconButton size="small" onClick={() => setOpen((o) => !o)}>
-              <MuiIcon sx={{ fontSize: 20 }}>{dOpen ? 'expand_less' : 'expand_more'}</MuiIcon>
-            </IconButton>
           </Tooltip>
         </Stack>
 
@@ -686,21 +683,52 @@ function CommitmentRow({ commitment, service, infraSrc, selections, setCommitmen
         </Stack>
         </HoverPopover>
 
-        {/* Term comparison */}
-        <Stack direction="row" spacing={1}>
-          {!hideOnDemand && <OnDemandCell commitment={commitment} visibleTermIds={visibleTermIds} showRisk={false} />}
-          {visibleTermIds.map((t) => (
-            <OptionCell
-              key={t}
-              commitment={commitment}
-              termId={t}
-              selected={ct === t}
-              onSelect={() => setCommitmentTerm(ids, t)}
-              showRisk={false}
-              planView={planView}
-            />
-          ))}
-        </Stack>
+        {summary ? (
+          // Summary columns: this commitment's outcome under its selected term.
+          (() => {
+            const sOpt = ct && ct !== 'mixed' ? aggregateOption(commitment.instances, ct) : null;
+            const savings = sOpt ? sOpt.savingsMo : 0;
+            const n = commitment.instances.length;
+            return (
+              <Stack direction="row" spacing={1}>
+                <Box sx={{ width: SCOL, flexShrink: 0, px: 1.5, textAlign: 'right' }}>
+                  <Typography variant="h6" sx={{ color: savings > 0 ? semantic.success.dark : palette.text.secondary }}>
+                    {savings > 0 ? '+' : ''}{fmtMoney(savings)}/mo
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                    {fmtPct(sOpt ? sOpt.rate : 0)} rate
+                  </Typography>
+                </Box>
+                <Typography variant="body1" sx={{ width: SCOL, flexShrink: 0, px: 1.5, textAlign: 'right' }}>{fmtMoney(costMo)}/mo</Typography>
+                <Typography variant="body1" sx={{ width: SCOL, flexShrink: 0, px: 1.5, textAlign: 'right' }}>{sOpt ? fmtDays(sOpt.breakevenDays) : '—'}</Typography>
+                <Typography variant="body1" sx={{ width: SCOL, flexShrink: 0, px: 1.5, textAlign: 'right' }}>{n} resource{n === 1 ? '' : 's'}</Typography>
+              </Stack>
+            );
+          })()
+        ) : (
+          /* Term comparison */
+          <Stack direction="row" spacing={1}>
+            {!hideOnDemand && <OnDemandCell commitment={commitment} visibleTermIds={visibleTermIds} showRisk={false} />}
+            {visibleTermIds.map((t) => (
+              <OptionCell
+                key={t}
+                commitment={commitment}
+                termId={t}
+                selected={ct === t}
+                onSelect={() => setCommitmentTerm(ids, t)}
+                showRisk={false}
+                planView={planView}
+              />
+            ))}
+          </Stack>
+        )}
+        <Box sx={{ width: CHEV, flexShrink: 0, display: 'flex', justifyContent: 'flex-end' }}>
+          <Tooltip title={dOpen ? 'Hide covered resources' : 'Show covered resources'}>
+            <IconButton size="small" onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }}>
+              <MuiIcon sx={{ fontSize: 20 }}>{dOpen ? 'expand_less' : 'expand_more'}</MuiIcon>
+            </IconButton>
+          </Tooltip>
+        </Box>
       </Stack>
 
       {/* Drill-down: the resources this commitment covers (read-only, searchable/paginated) */}
@@ -774,11 +802,6 @@ function ServiceAggregateRow({ service, infraSrc, serviceTerm, allIncluded, none
               onChange={() => setServiceTerm(service.id, allIncluded ? null : 'archera_30d')}
             />
           </Tooltip>
-          <Tooltip title={dOpen ? 'Hide resources' : 'Show all resources'}>
-            <IconButton size="small" onClick={() => setOpen((o) => !o)}>
-              <MuiIcon sx={{ fontSize: 20 }}>{dOpen ? 'expand_less' : 'expand_more'}</MuiIcon>
-            </IconButton>
-          </Tooltip>
         </Stack>
 
         <Stack direction="row" spacing={1.5} alignItems="center" sx={{ flex: 1, minWidth: COL.info }}>
@@ -808,10 +831,17 @@ function ServiceAggregateRow({ service, infraSrc, serviceTerm, allIncluded, none
             />
           ))}
         </Stack>
+        <Box sx={{ width: CHEV, flexShrink: 0, display: 'flex', justifyContent: 'flex-end' }}>
+          <Tooltip title={dOpen ? 'Hide resources' : 'Show all resources'}>
+            <IconButton size="small" onClick={() => setOpen((o) => !o)}>
+              <MuiIcon sx={{ fontSize: 20 }}>{dOpen ? 'expand_less' : 'expand_more'}</MuiIcon>
+            </IconButton>
+          </Tooltip>
+        </Box>
       </Stack>
 
       <Collapse in={dOpen}>
-        <ResourceTable instances={allInst} infraSrc={infraSrc} service={service} selections={selections} query={resourceQuery} title="All resources · read-only" />
+        <ResourceTable instances={allInst} infraSrc={infraSrc} service={service} selections={selections} />
       </Collapse>
     </Box>
   );
@@ -842,21 +872,31 @@ export default function ServiceCard({ service, selections, setCommitmentTerm, se
       : semantic.success.main;
   const savingsColor = m.savingsMo > 0 ? semantic.success.main : palette.text.secondary;
 
-  // Plan view: the page-level "Compare terms" switch (compareMode) bulk-expands every
-  // card; default off → all closed, so the comparison grid is opt-in and never
-  // overwhelms. The chevron still toggles an individual card between switch changes.
-  // The builder collapses a card only when its service drops out of the plan.
-  const [expanded, setExpanded] = useState(planView ? compareMode : !noneIncluded);
-  useEffect(() => { if (planView) setExpanded(compareMode); }, [planView, compareMode]);
+  // Builder open state: collapse a card only when its service drops out of the plan.
+  const [expanded, setExpanded] = useState(!noneIncluded);
   useEffect(() => { if (!planView) setExpanded(!noneIncluded); }, [noneIncluded, planView]);
 
-  // Granularity: per line item (default) or one term for the whole service.
+  // Plan view open/close. The inline "View" toggle (summary) and the chevron
+  // (shown while comparing) both drive this state; flipping Compare bulk-opens or
+  // -closes, but the chevron can still collapse an individual card mid-comparison.
+  const [planOpen, setPlanOpen] = useState(false);
+  useEffect(() => { if (planView) setPlanOpen(compareMode); }, [planView, compareMode]);
+  const open = planView ? planOpen : expanded;
+  const showSummary = planView && !compareMode; // summary columns vs term comparison
+
+  // Granularity (builder): per line item (default) or one term for the whole service.
   const [view, setView] = useState('commitment');
 
   return (
     <Box sx={{ bgcolor: palette.surface, border: `1px solid ${color.outlineBorder}`, borderRadius: 1 }}>
-      {/* Header */}
-      <Stack direction="row" alignItems="center" spacing={2} sx={{ p: 2, opacity: noneIncluded ? 0.6 : 1 }}>
+      {/* Header — click anywhere (except the checkbox/chevron) to toggle the card */}
+      <Stack
+        direction="row"
+        alignItems="center"
+        spacing={2}
+        onClick={() => (planView ? setPlanOpen((o) => !o) : setExpanded((o) => !o))}
+        sx={{ p: 2, opacity: noneIncluded ? 0.6 : 1, cursor: 'pointer', '&:hover': { bgcolor: HOVER_BG } }}
+      >
         <Tooltip
           title={allIncluded
             ? `Exclude all ${service.instances.length} ${service.name} resources — they stay on-demand`
@@ -865,6 +905,7 @@ export default function ServiceCard({ service, selections, setCommitmentTerm, se
           <Checkbox
             checked={allIncluded}
             indeterminate={!allIncluded && !noneIncluded}
+            onClick={(e) => e.stopPropagation()}
             onChange={() => setServiceTerm(service.id, allIncluded ? null : 'archera_30d')}
           />
         </Tooltip>
@@ -925,16 +966,13 @@ export default function ServiceCard({ service, selections, setCommitmentTerm, se
           </Stack>
         )}
         {/* ds-audit-ignore-end */}
-        {/* Plan view: the chevron only appears once "Compare terms" is on — until
-            then the card is a summary and the page-level switch is the sole way in.
-            Builder always shows it. */}
-        {(!planView || compareMode) && (
-          <Tooltip title={expanded ? 'Collapse commitments' : 'Expand commitments'}>
-            <IconButton size="small" onClick={() => setExpanded((e) => !e)}>
-              <MuiIcon sx={{ fontSize: 22 }}>{expanded ? 'expand_less' : 'expand_more'}</MuiIcon>
-            </IconButton>
-          </Tooltip>
-        )}
+        {/* Single chevron toggles the card open/closed in both views — summary when
+            Compare is off, the comparison grid when it's on. */}
+        <Tooltip title={open ? 'Collapse commitments' : 'Expand commitments'}>
+          <IconButton size="small" onClick={(e) => { e.stopPropagation(); (planView ? setPlanOpen((o) => !o) : setExpanded((o) => !o)); }}>
+            <MuiIcon sx={{ fontSize: 22 }}>{open ? 'expand_less' : 'expand_more'}</MuiIcon>
+          </IconButton>
+        </Tooltip>
       </Stack>
 
       {/* Coverage bar stays visible even when the card is minimized (builder only —
@@ -945,38 +983,26 @@ export default function ServiceCard({ service, selections, setCommitmentTerm, se
         </Box>
       )}
 
-      <Collapse in={expanded || Boolean(resourceQuery)}>
-        {/* Comparison table */}
+      <Collapse in={open || Boolean(resourceQuery)}>
         <Box sx={{ pb: 1 }}>
-          <CommitmentTableHeader
-            visibleTermIds={visibleTermIds}
-            view={view}
-            setView={setView}
-            hideOnDemand={planView}
-            planView={planView}
-            showSelectAll={view === 'commitment'}
-            serviceId={service.id}
-            serviceTerm={serviceTerm}
-            setServiceTerm={setServiceTerm}
-            noneIncluded={noneIncluded}
-            commitmentCount={commitments.length}
-          />
-          {view === 'commitment' ? (
-            commitments.map((c) => (
-              <CommitmentRow
-                key={c.key}
-                commitment={c}
-                service={service}
-                infraSrc={SERVICE_ICON[service.id]}
-                selections={selections}
-                setCommitmentTerm={setCommitmentTerm}
-                visibleTermIds={visibleTermIds}
-                resourceQuery={resourceQuery}
-                hideOnDemand={planView}
-                planView={planView}
-              />
-            ))
+          {showSummary ? (
+            <SummaryHeader />
           ) : (
+            <CommitmentTableHeader
+              visibleTermIds={visibleTermIds}
+              view={view}
+              setView={setView}
+              hideOnDemand={planView}
+              planView={planView}
+              showSelectAll={view === 'commitment'}
+              serviceId={service.id}
+              serviceTerm={serviceTerm}
+              setServiceTerm={setServiceTerm}
+              noneIncluded={noneIncluded}
+              commitmentCount={commitments.length}
+            />
+          )}
+          {(!showSummary && view === 'service') ? (
             <ServiceAggregateRow
               service={service}
               infraSrc={SERVICE_ICON[service.id]}
@@ -989,6 +1015,22 @@ export default function ServiceCard({ service, selections, setCommitmentTerm, se
               resourceQuery={resourceQuery}
               hideOnDemand={planView}
             />
+          ) : (
+            commitments.map((c) => (
+              <CommitmentRow
+                key={c.key}
+                commitment={c}
+                service={service}
+                infraSrc={SERVICE_ICON[service.id]}
+                selections={selections}
+                setCommitmentTerm={setCommitmentTerm}
+                visibleTermIds={visibleTermIds}
+                resourceQuery={resourceQuery}
+                hideOnDemand={planView}
+                planView={planView}
+                summary={showSummary}
+              />
+            ))
           )}
         </Box>
       </Collapse>
