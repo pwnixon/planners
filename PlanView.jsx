@@ -16,7 +16,7 @@ import BriefingOverlay from './BriefingOverlay';
 import {
   SERVICES, TERMS, TERM_ORDER, TERM_LENGTHS, PRESETS, defaultSelections, applyPreset, detectPlan,
   pageMetrics, PLAN_KPIS, fmtMoney, fmtPct,
-  serviceCommitments, aggregateOption, commitmentTerm, planCommitmentCount, planSummary,
+  serviceCommitments, aggregateOption, commitmentTerm, planCommitmentCount, planSummary, RESTORE_TERM,
 } from './data';
 
 function SectionHeader({ title, description, action }) {
@@ -142,6 +142,7 @@ function ReviewApplyModal({ open, onClose, onConfirm, planName, metrics, selecti
 
 export default function PlanView() {
   const demo = new URLSearchParams(window.location.search).get('demo');
+  const openServices = new URLSearchParams(window.location.search).get('service') === 'open';
   const [briefing, setBriefing] = useState(demo === 'briefing'); // has_actioned_plan === false
   const [selections, setSelections] = useState(defaultSelections); // prefilled: nightly Recommended plan
   const [visibleLengths, setVisibleLengths] = useState(DEFAULT_VISIBLE_LENGTHS);
@@ -205,10 +206,19 @@ export default function PlanView() {
 
   // A commitment (line item) is the unit of term selection — set the term on the
   // whole block of resources it covers at once.
+  // Remember each instance's last real term so re-including (RESTORE_TERM) restores
+  // the term it had — not a hardcoded 30-day — which keeps plan auto-detection honest
+  // (re-including a 1-year Balanced commitment comes back as 1-year, not 30-day).
+  const lastTerm = useRef({});
+  useEffect(() => {
+    Object.entries(selections).forEach(([id, t]) => { if (t) lastTerm.current[id] = t; });
+  }, [selections]);
+  const resolveTerm = (id, termId) => (termId === RESTORE_TERM ? (lastTerm.current[id] || 'archera_30d') : termId);
+
   const setCommitmentTerm = (instanceIds, termId) => {
     setSelections((s) => {
       const next = { ...s };
-      instanceIds.forEach((id) => { next[id] = termId; });
+      instanceIds.forEach((id) => { next[id] = resolveTerm(id, termId); });
       return next;
     });
   };
@@ -217,7 +227,7 @@ export default function PlanView() {
     const svc = SERVICES.find((s) => s.id === serviceId);
     setSelections((s) => {
       const next = { ...s };
-      svc.instances.forEach((i) => { next[i.id] = termId; });
+      svc.instances.forEach((i) => { next[i.id] = resolveTerm(i.id, termId); });
       return next;
     });
   };
@@ -461,6 +471,7 @@ export default function PlanView() {
             visibleTermIds={visibleTermIds}
             planView
             compareMode={compare}
+            defaultOpen={openServices}
           />
         ))}
         </Stack>

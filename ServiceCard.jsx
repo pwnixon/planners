@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   Box, Stack, Typography, Tooltip, Checkbox, IconButton, Collapse,
   Divider, Link, ToggleButton, ToggleButtonGroup,
@@ -14,7 +14,7 @@ import { SERVICE_ICON } from './serviceIcons';
 import {
   TERMS, optionFor, serviceMetrics, sparkPoints, fmtMoney, fmtPct, fmtDays,
   serviceCommitments, aggregateOption, commitmentTerm, commitmentDetail, resourceDetail,
-  resourceMatches, COVERAGE_TARGET,
+  resourceMatches, COVERAGE_TARGET, RESTORE_TERM,
 } from './data';
 
 // Selection highlight — branded alert bg: brand-primary light at 20% opacity
@@ -639,7 +639,7 @@ function CommitmentRow({ commitment, service, infraSrc, selections, setCommitmen
               checked={included}
               indeterminate={ct === 'mixed'}
               onClick={(e) => e.stopPropagation()}
-              onChange={() => setCommitmentTerm(ids, included ? null : 'archera_30d')}
+              onChange={() => setCommitmentTerm(ids, included ? null : RESTORE_TERM)}
             />
           </Tooltip>
         </Stack>
@@ -789,7 +789,7 @@ function ServiceAggregateRow({ service, infraSrc, serviceTerm, allIncluded, none
             <Checkbox
               checked={allIncluded}
               indeterminate={!allIncluded && !noneIncluded}
-              onChange={() => setServiceTerm(service.id, allIncluded ? null : 'archera_30d')}
+              onChange={() => setServiceTerm(service.id, allIncluded ? null : RESTORE_TERM)}
             />
           </Tooltip>
         </Stack>
@@ -839,7 +839,7 @@ function ServiceAggregateRow({ service, infraSrc, serviceTerm, allIncluded, none
 
 // ─── Service card ────────────────────────────────────────────────────────────
 
-export default function ServiceCard({ service, selections, setCommitmentTerm, setServiceTerm, visibleTermIds, resourceQuery, planView = false, compareMode = false }) {
+export default function ServiceCard({ service, selections, setCommitmentTerm, setServiceTerm, visibleTermIds, resourceQuery, planView = false, compareMode = false, defaultOpen = false }) {
   const m = serviceMetrics(service, selections);
   const commitments = serviceCommitments(service);
 
@@ -869,8 +869,14 @@ export default function ServiceCard({ service, selections, setCommitmentTerm, se
   // Plan view open/close. The inline "View" toggle (summary) and the chevron
   // (shown while comparing) both drive this state; flipping Compare bulk-opens or
   // -closes, but the chevron can still collapse an individual card mid-comparison.
-  const [planOpen, setPlanOpen] = useState(false);
-  useEffect(() => { if (planView) setPlanOpen(compareMode && !noneIncluded); }, [planView, compareMode]);
+  // Seed from the `service=open` URL param (included services start open); the
+  // firstRun guard keeps the compareMode effect from resetting that on mount.
+  const [planOpen, setPlanOpen] = useState(defaultOpen && !noneIncluded);
+  const firstPlanRun = useRef(true);
+  useEffect(() => {
+    if (firstPlanRun.current) { firstPlanRun.current = false; return; }
+    if (planView) setPlanOpen(compareMode && !noneIncluded);
+  }, [planView, compareMode]);
   const open = planView ? planOpen : expanded;
   const showSummary = planView && !compareMode; // summary columns vs term comparison
 
@@ -896,7 +902,7 @@ export default function ServiceCard({ service, selections, setCommitmentTerm, se
             checked={allIncluded}
             indeterminate={!allIncluded && !noneIncluded}
             onClick={(e) => e.stopPropagation()}
-            onChange={() => setServiceTerm(service.id, allIncluded ? null : 'archera_30d')}
+            onChange={() => setServiceTerm(service.id, allIncluded ? null : RESTORE_TERM)}
           />
         </Tooltip>
         <Box component="img" src={SERVICE_ICON[service.id]} alt="" sx={{ width: 38, height: 38, objectFit: 'contain', flexShrink: 0 }} />

@@ -224,6 +224,11 @@ export function planSummary(presetId, selections) {
   return { savings: fmtMoney(m.savingsMo.projected), term: PRESETS[presetId].term };
 }
 
+// Sentinel passed to the term setters by the include checkbox: "re-include this
+// block at whatever term it last had" (not a hardcoded 30-day), so toggling a
+// commitment off and back on round-trips and keeps plan auto-detection honest.
+export const RESTORE_TERM = '__restore__';
+
 export function applyPreset(presetId) {
   const preset = PRESETS[presetId];
   const sel = {};

@@ -15,7 +15,7 @@ import BriefingOverlay from './BriefingOverlay';
 import {
   SERVICES, TERMS, TERM_ORDER, TERM_LENGTHS, PRESETS, defaultSelections, applyPreset, detectPlan,
   pageMetrics, DEFAULT_FEATURED, fmtMoney, fmtPct, KPI_CATALOG,
-  serviceCommitments, aggregateOption, commitmentTerm, planCommitmentCount,
+  serviceCommitments, aggregateOption, commitmentTerm, planCommitmentCount, RESTORE_TERM,
 } from './data';
 
 const kpiById = Object.fromEntries(KPI_CATALOG.map((k) => [k.id, k]));
@@ -194,10 +194,18 @@ export default function BuilderView() {
 
   // A commitment (line item) is the unit of term selection — set the term on the
   // whole block of resources it covers at once.
+  // Remember each instance's last real term so re-including (RESTORE_TERM) restores
+  // the term it had rather than a hardcoded 30-day, keeping plan detection honest.
+  const lastTerm = useRef({});
+  useEffect(() => {
+    Object.entries(selections).forEach(([id, t]) => { if (t) lastTerm.current[id] = t; });
+  }, [selections]);
+  const resolveTerm = (id, termId) => (termId === RESTORE_TERM ? (lastTerm.current[id] || 'archera_30d') : termId);
+
   const setCommitmentTerm = (instanceIds, termId) => {
     setSelections((s) => {
       const next = { ...s };
-      instanceIds.forEach((id) => { next[id] = termId; });
+      instanceIds.forEach((id) => { next[id] = resolveTerm(id, termId); });
       return next;
     });
   };
@@ -206,7 +214,7 @@ export default function BuilderView() {
     const svc = SERVICES.find((s) => s.id === serviceId);
     setSelections((s) => {
       const next = { ...s };
-      svc.instances.forEach((i) => { next[i.id] = termId; });
+      svc.instances.forEach((i) => { next[i.id] = resolveTerm(i.id, termId); });
       return next;
     });
   };
