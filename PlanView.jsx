@@ -33,6 +33,14 @@ function SectionHeader({ title, description, action }) {
 
 const DEFAULT_VISIBLE_LENGTHS = ['30d', '1y'];
 
+// Custom-plan term summary: the distinct term(s) currently selected — a single short
+// label, or "Mixed" when the plan spans more than one term.
+const customTermLabel = (sel) => {
+  const ids = new Set(Object.values(sel).filter(Boolean));
+  const labels = TERM_ORDER.filter((t) => ids.has(t)).map((t) => TERMS[t].short);
+  return labels.length === 0 ? '—' : labels.length === 1 ? labels[0] : 'Mixed';
+};
+
 // Derive the ordered list of visible term IDs from selected length groups + commitment types
 function deriveVisibleTerms(lengths, types) {
   const ids = new Set(
@@ -341,9 +349,9 @@ export default function PlanView() {
             // Active custom plan shows its live savings; an inactive-but-saved custom
             // plan shows its snapshot's savings; otherwise there's no custom plan yet.
             const sum = activePlan === 'custom'
-              ? { savings: fmtMoney(metrics.savingsMo.projected), term: '—' }
+              ? { savings: fmtMoney(metrics.savingsMo.projected), term: customTermLabel(selections) }
               : hasCustomPlan && customSnapshot.current
-                ? { savings: fmtMoney(pageMetrics(customSnapshot.current).savingsMo.projected), term: '—' }
+                ? { savings: fmtMoney(pageMetrics(customSnapshot.current).savingsMo.projected), term: customTermLabel(customSnapshot.current) }
                 : { savings: '—', term: '—' };
             return (
               <StrategyCard

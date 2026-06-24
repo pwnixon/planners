@@ -88,7 +88,7 @@ export default function StrategyCard({
 
   if (active) {
     return (
-      <Box sx={{ minWidth: 0, height: CARD_HEIGHT, display: 'flex', flexDirection: 'column', overflow: 'hidden', borderRadius: 1, bgcolor: palette.surface, border: `1px solid ${t.status}` }}>
+      <Box sx={{ minWidth: 0, height: CARD_HEIGHT, display: 'flex', flexDirection: 'column', overflow: 'hidden', borderRadius: 2, bgcolor: palette.surface, border: `1px solid ${t.status}` }}>
         <Box key="body-active" sx={{ flex: 1, minHeight: 0, background: t.grad, p: 3, ...FADE_SX }}>
           <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
             {!isCustom && (
@@ -134,7 +134,7 @@ export default function StrategyCard({
     <Box
       onClick={clickable ? onSelect : undefined}
       sx={{
-        minWidth: 0, height: CARD_HEIGHT, display: 'flex', flexDirection: 'column', overflow: 'hidden', borderRadius: 1,
+        minWidth: 0, height: CARD_HEIGHT, display: 'flex', flexDirection: 'column', overflow: 'hidden', borderRadius: 2,
         bgcolor: palette.surface, border: `1px solid ${color.outlineBorder}`,
         cursor: clickable ? 'pointer' : 'default',
         transition: 'box-shadow 0.2s ease',
@@ -151,7 +151,7 @@ export default function StrategyCard({
           </Stack>
           <Typography variant="body1" color="text.secondary">{desc}</Typography>
         </Box>
-        <Stack spacing={1}>
+        <Stack spacing={1} sx={{ mb: 5 }}>
           <MetricRow label="Net Monthly Savings" value={savings} />
           <Divider />
           <MetricRow label="Term Length" value={term} />
