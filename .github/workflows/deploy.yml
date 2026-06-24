@@ -29,6 +29,12 @@ jobs:
         env:
           npm_config_prefer_online: true
 
+      # Re-resolve the design system to the latest main on every deploy so DS pushes
+      # reach this prototype (the lockfile otherwise pins it to an old commit, and a
+      # plain npm install / --prefer-online won't move a locked git SHA). Everything
+      # else stays pinned by package-lock.json for reproducible builds.
+      - run: npm install --prefer-online @archera/design-system@github:pwnixon/design-system#main
+
       - run: npm run build
         env:
           BASE_URL: /${{ github.event.repository.name }}/
