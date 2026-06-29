@@ -1,4 +1,4 @@
-import { Box, Stack, Typography, Button, Divider, Icon as MuiIcon } from '@mui/material';
+import { Box, Stack, Typography, Button, IconButton, Tooltip, Divider, Icon as MuiIcon } from '@mui/material';
 import { alpha } from '@mui/material/styles';
 import palette from '@archera/design-system/palettes/archera-palette';
 import { color, semantic, elevation } from '@archera/design-system/tokens';
@@ -79,7 +79,7 @@ function MetricRow({ label, value }) {
 
 export default function StrategyCard({
   title, desc, active, isCustom, tone = 'recommended',
-  savings, term, onSelect, onApply, onSave, onConfigure,
+  savings, term, onSelect, onApply, onSave, onConfigure, onShare,
 }) {
   const t = CARD_TONE[tone] || CARD_TONE.recommended;
   const clickable = !active && Boolean(onSelect);
@@ -121,6 +121,11 @@ export default function StrategyCard({
                 Configure
               </Button>
             )}
+            <Tooltip title="Share plan">
+              <IconButton onClick={(e) => { e.stopPropagation(); onShare?.(); }}>
+                <MuiIcon baseClassName="material-icons-outlined">share</MuiIcon>
+              </IconButton>
+            </Tooltip>
             <Button variant="contained" onClick={(e) => { e.stopPropagation(); onApply?.(); }} sx={{ bgcolor: t.status, '&:hover': { bgcolor: t.statusDark } }}>
               Review &amp; Apply
             </Button>

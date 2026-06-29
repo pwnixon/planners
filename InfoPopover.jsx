@@ -3,8 +3,8 @@ import { color } from '@archera/design-system/tokens';
 
 // Shared popover body — rendered inside a MUI Popover's Paper (which provides the
 // surface, elevation, and radius). eyebrow (type) over an h6 name, one or more
-// description lines, then optional key/value rows. Keys are body2 (not uppercase);
-// values are body2 at a heavier weight.
+// description lines, then optional key/value rows. Keys/values are uiXsmall;
+// values at a heavier weight.
 export default function InfoPopover({ eyebrow, title, description, rows = [] }) {
   const desc = (Array.isArray(description) ? description : [description]).filter(Boolean);
   return (
@@ -30,8 +30,8 @@ export default function InfoPopover({ eyebrow, title, description, rows = [] }) 
               spacing={3}
               sx={{ py: 0.5, borderBottom: `1px solid ${color.outlineBorder}` }}
             >
-              <Typography variant="body2" color="text.secondary" sx={{ flexShrink: 0 }}>{r.k}</Typography>
-              <Typography variant="body2" color="text.primary" sx={{ flex: 1, textAlign: 'right', fontWeight: 600 }}>{r.val}</Typography>
+              <Typography variant="uiXsmall" color="text.secondary" sx={{ flexShrink: 0 }}>{r.k}</Typography>
+              <Typography variant="uiXsmall" color="text.primary" sx={{ flex: 1, textAlign: 'right', fontWeight: 600 }}>{r.val}</Typography>
             </Stack>
           ))}
         </Box>

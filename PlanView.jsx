@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Box, Stack, Typography, Button, Chip, Checkbox, FormControlLabel, Tooltip, Switch, Collapse,
-  Snackbar, Alert, Divider, Dialog, DialogTitle, DialogContent, DialogActions,
+  Box, Stack, Typography, Button, Checkbox, FormControlLabel, Tooltip, Switch, Collapse,
+  Snackbar, Alert, Divider, Dialog, DialogTitle, DialogContent, DialogActions, TablePagination,
+  Icon as MuiIcon,
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
 import AppShell from '@archera/design-system/AppShell';
@@ -39,6 +40,16 @@ const customTermLabel = (sel) => {
   const ids = new Set(Object.values(sel).filter(Boolean));
   const labels = TERM_ORDER.filter((t) => ids.has(t)).map((t) => TERMS[t].short);
   return labels.length === 0 ? '—' : labels.length === 1 ? labels[0] : 'Mixed';
+};
+
+// Review-modal commitment type: "30 Day GRI" / "1 Year GSP" (guaranteed) or
+// "1 Year RI" / "3 Year SP" (native), from the commitment's term length + kind.
+const TERM_LEN = { 30: '30 Day', 365: '1 Year', 1095: '3 Year' };
+const termTypeLabel = (r) => {
+  const t = TERMS[r.termId];
+  const length = TERM_LEN[t?.lockDays] || t?.short || '';
+  const suffix = r.guaranteed ? (r.kind === 'sp' ? 'GSP' : 'GRI') : (r.kind === 'sp' ? 'SP' : 'RI');
+  return `${length} ${suffix}`;
 };
 
 // Derive the ordered list of visible term IDs from selected length groups + commitment types
@@ -83,26 +94,50 @@ function ReviewApplyModal({ open, onClose, onConfirm, planName, metrics, selecti
     .filter((g) => g.rows.length > 0);
 
   const commitmentCount = groups.reduce((a, g) => a + g.rows.length, 0);
-  const W = { term: 136, res: 80, cost: 100, sav: 124 };
+  const W = { term: 180, res: 80, cost: 100, sav: 124 };
+
+  // Top KPIs — mirror the plan-view KPI cards (icon tile + label + value), but
+  // semantically colored: success for savings/coverage, neutral for the count.
+  const kpis = [
+    { icon: 'savings', label: 'Net monthly savings', value: `+${fmtMoney(netSavings)}/mo`, c: semantic.success.main },
+    { icon: 'shield', label: 'Projected coverage', value: fmtPct(metrics.coverage.projected), c: semantic.success.main },
+    { icon: 'receipt_long', label: 'Commitments', value: commitmentCount, c: palette.text.secondary },
+  ];
+
+  // Paginate the line items (10/page default). Flatten across service groups,
+  // slice the page, then re-group the visible slice so the service subheaders
+  // still appear within the page.
+  const flatRows = groups.flatMap((g) => g.rows.map((r) => ({ service: g.service, r })));
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(10);
+  useEffect(() => { setPage(0); }, [open, commitmentCount]);
+  const visible = flatRows.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage);
+  const pagedGroups = [];
+  visible.forEach(({ service, r }) => {
+    const last = pagedGroups[pagedGroups.length - 1];
+    if (last && last.service.id === service.id) last.rows.push(r);
+    else pagedGroups.push({ service, rows: [r] });
+  });
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
       <DialogTitle>{planName} — review &amp; apply</DialogTitle>
       <DialogContent>
-        <Stack direction="row" spacing={5} sx={{ mb: 3, p: 2, borderRadius: 1, bgcolor: alpha(palette.brandPrimary[50], 0.4) }}>
-          <Box>
-            <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>Net monthly savings</Typography>
-            <Typography variant="h4" sx={{ color: semantic.success.dark }}>+{fmtMoney(netSavings)}/mo</Typography>
-          </Box>
-          <Box>
-            <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>Projected coverage</Typography>
-            <Typography variant="h4">{fmtPct(metrics.coverage.projected)}</Typography>
-          </Box>
-          <Box>
-            <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>Commitments</Typography>
-            <Typography variant="h4">{commitmentCount}</Typography>
-          </Box>
-        </Stack>
+        <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 1.5, mb: 3 }}>
+          {kpis.map((k) => (
+            <Box key={k.label} sx={{ bgcolor: palette.surface, border: `1px solid ${color.outlineBorder}`, borderRadius: 2, p: 1.5 }}>
+              <Stack direction="row" spacing={1.5} alignItems="center">
+                <Box sx={{ width: 44, height: 44, borderRadius: 2, flexShrink: 0, bgcolor: alpha(k.c, 0.12), display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <MuiIcon baseClassName="material-icons-outlined" sx={{ fontSize: 24, color: k.c }}>{k.icon}</MuiIcon>
+                </Box>
+                <Box sx={{ minWidth: 0 }}>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>{k.label}</Typography>
+                  <Typography variant="h4" sx={{ color: k.c }}>{k.value}</Typography>
+                </Box>
+              </Stack>
+            </Box>
+          ))}
+        </Box>
 
         <Stack direction="row" spacing={2} alignItems="flex-end" sx={{ pb: 1, borderBottom: `1px solid ${color.outlineBorder}` }}>
           <Typography variant="h6" color="text.secondary" sx={{ flex: 1 }}>Commitment</Typography>
@@ -112,7 +147,7 @@ function ReviewApplyModal({ open, onClose, onConfirm, planName, metrics, selecti
           <Typography variant="h6" color="text.secondary" sx={{ width: W.sav, flexShrink: 0, textAlign: 'right' }}>Net savings/mo</Typography>
         </Stack>
 
-        {groups.map((g) => (
+        {pagedGroups.map((g) => (
           <Box key={g.service.id}>
             <Typography variant="subtitle2" sx={{ textTransform: 'none', color: palette.text.secondary, bgcolor: palette.neutral[50], px: 1, py: 0.5, mt: 1.5, borderRadius: 0.5 }}>
               {g.service.name}
@@ -127,7 +162,10 @@ function ReviewApplyModal({ open, onClose, onConfirm, planName, metrics, selecti
                   <Typography variant="caption" color="text.secondary" sx={{ display: 'block', pl: '32px' }}>{r.scope}</Typography>
                 </Box>
                 <Box sx={{ width: W.term, flexShrink: 0 }}>
-                  <Chip size="small" variant="outlined" color={r.guaranteed ? 'secondary' : 'default'} label={<Typography variant="micro">{r.term}</Typography>} />
+                  <Typography variant="body2" sx={{ fontWeight: 500, color: r.guaranteed ? palette.brandPrimary[500] : palette.text.primary }}>
+                    {termTypeLabel(r)}
+                    <Box component="span" sx={{ color: palette.text.secondary, fontWeight: 400 }}> | No Upfront</Box>
+                  </Typography>
                 </Box>
                 <Typography variant="body2" sx={{ width: W.res, flexShrink: 0, textAlign: 'right' }}>{r.count}</Typography>
                 <Typography variant="body2" sx={{ width: W.cost, flexShrink: 0, textAlign: 'right' }}>{fmtMoney(r.cost)}/mo</Typography>
@@ -138,6 +176,17 @@ function ReviewApplyModal({ open, onClose, onConfirm, planName, metrics, selecti
         ))}
         {groups.length === 0 && (
           <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>No commitments selected yet — add coverage before applying.</Typography>
+        )}
+        {flatRows.length > 0 && (
+          <TablePagination
+            component="div"
+            count={flatRows.length}
+            page={page}
+            onPageChange={(_, p) => setPage(p)}
+            rowsPerPage={rowsPerPage}
+            onRowsPerPageChange={(e) => { setRowsPerPage(parseInt(e.target.value, 10)); setPage(0); }}
+            rowsPerPageOptions={[10, 25, 50]}
+          />
         )}
       </DialogContent>
       <DialogActions>
@@ -171,6 +220,8 @@ export default function PlanView() {
     });
   };
   const [savedToast, setSavedToast] = useState(false);
+  const [shareToast, setShareToast] = useState(false);
+  const handleShare = () => { navigator.clipboard?.writeText(window.location.href); setShareToast(true); };
   // Comparison is opt-in in the plan view: off (default) keeps cards collapsed to
   // plan summaries; on reveals the term/type controls and expands every card.
   const [compare, setCompare] = useState(false);
@@ -342,6 +393,7 @@ export default function PlanView() {
                 term={sum.term}
                 onSelect={() => handleApply(id)}
                 onApply={() => setReviewOpen(true)}
+                onShare={handleShare}
               />
             );
           })}
@@ -371,6 +423,7 @@ export default function PlanView() {
                 onApply={() => setReviewOpen(true)}
                 onSave={() => setSavedToast(true)}
                 onConfigure={() => setCustomModalOpen(true)}
+                onShare={handleShare}
               />
             );
           })()}
@@ -533,6 +586,17 @@ export default function PlanView() {
         <Alert severity="success" onClose={() => setSavedToast(false)}>
           Draft saved — {planCommitmentCount(selections)} commitments, +{fmtMoney(metrics.savingsMo.projected - metrics.savingsMo.current)}/mo
           projected net savings. Nothing is purchased until you execute.
+        </Alert>
+      </Snackbar>
+
+      <Snackbar
+        open={shareToast}
+        autoHideDuration={4000}
+        onClose={() => setShareToast(false)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert severity="info" onClose={() => setShareToast(false)}>
+          Shareable link to this plan copied to your clipboard.
         </Alert>
       </Snackbar>
 

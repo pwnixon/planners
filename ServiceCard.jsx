@@ -448,7 +448,7 @@ function ResourceTable({ instances, infraSrc, service, selections, pageSize = 5 
           sx={{ px: 2, py: 1, borderTop: idx ? `1px solid ${color.divider}` : 'none', '&:hover': { bgcolor: HOVER_BG } }}
         >
           <Box sx={{ width: COL.lead, flexShrink: 0 }} />
-          <HoverPopover placement="left-start" interactive content={<ResourceDetailPopover instance={r.i} service={service} infraSrc={infraSrc} />}>
+          <HoverPopover placement="bottom-start" interactive content={<ResourceDetailPopover instance={r.i} service={service} infraSrc={infraSrc} />}>
           <Stack direction="row" spacing={1.25} alignItems="center" sx={{ flex: 1, minWidth: 0, cursor: 'default' }}>
             <Box component="img" src={infraSrc} alt="" sx={{ width: 22, height: 22, objectFit: 'contain', flexShrink: 0 }} />
             <Box sx={{ minWidth: 0 }}>
@@ -511,7 +511,7 @@ function AccountBadge() {
 
 function AccountValue({ id }) {
   return (
-    <Typography variant="body2" component="span">
+    <Typography variant="uiXsmall" component="span">
       <Box component="span" sx={{ fontWeight: 600 }}>Archera Managed Account:</Box>{' '}
       <Box component="span" sx={{ color: 'text.secondary' }}>{id}</Box>
     </Typography>
@@ -540,12 +540,12 @@ function CommitmentDetailPopover({ commitment, service, termId, infraSrc }) {
       <Stack>
         {detail.rows.map((r) => (
           <Stack key={r.label} direction="row" alignItems="center" spacing={1} sx={{ py: 0.25, borderTop: `1px solid ${color.divider}` }}>
-            <Typography variant="body2" color="text.secondary" sx={{ width: 150, flexShrink: 0 }}>{r.label}:</Typography>
+            <Typography variant="uiXsmall" color="text.secondary" sx={{ width: 150, flexShrink: 0 }}>{r.label}:</Typography>
             <Box sx={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 0.75 }}>
               {r.account && <AccountBadge />}
               {r.account
                 ? <AccountValue id={r.value} />
-                : <Typography variant="body2" sx={{ wordBreak: 'break-all' }}>{r.value}</Typography>}
+                : <Typography variant="uiXsmall" sx={{ wordBreak: 'break-all' }}>{r.value}</Typography>}
             </Box>
             <Tooltip title="Copy">
               <IconButton size="small" onClick={() => navigator.clipboard?.writeText(String(r.value))} sx={{ flexShrink: 0, p: 0.25 }}>
@@ -585,12 +585,12 @@ function ResourceDetailPopover({ instance, service, infraSrc }) {
       <Stack>
         {detail.rows.map((r) => (
           <Stack key={r.label} direction="row" alignItems="center" spacing={1} sx={{ py: 0.25, borderTop: `1px solid ${color.divider}` }}>
-            <Typography variant="body2" color="text.secondary" sx={{ width: 150, flexShrink: 0 }}>{r.label}:</Typography>
+            <Typography variant="uiXsmall" color="text.secondary" sx={{ width: 150, flexShrink: 0 }}>{r.label}:</Typography>
             <Box sx={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 0.75 }}>
               {r.account && <AccountBadge />}
               {r.account
                 ? <AccountValue id={r.value} />
-                : <Typography variant="body2" sx={{ wordBreak: 'break-all' }}>{r.value}</Typography>}
+                : <Typography variant="uiXsmall" sx={{ wordBreak: 'break-all' }}>{r.value}</Typography>}
             </Box>
             <Tooltip title="Copy">
               <IconButton size="small" onClick={() => navigator.clipboard?.writeText(String(r.value))} sx={{ flexShrink: 0, p: 0.25 }}>
@@ -647,7 +647,7 @@ function CommitmentRow({ commitment, service, infraSrc, selections, setCommitmen
         {/* Commitment identity — vehicle, then the scope it covers. Hover for the
             full commitment detail (key/value pairs). */}
         <HoverPopover
-          placement="left-start"
+          placement="bottom-start"
           interactive
           content={<CommitmentDetailPopover commitment={commitment} service={service} termId={ct} infraSrc={infraSrc} />}
         >
