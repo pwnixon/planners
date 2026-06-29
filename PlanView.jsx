@@ -446,7 +446,7 @@ export default function PlanView() {
         {/* Plan coverage header + the compare-terms toggle in a card (bottom corners
             squared so it caps the service-card stack below); the comparison toolbar
             it reveals is set off from the toggle by a divider. */}
-        <Box sx={{ bgcolor: palette.surface, border: `1px solid ${color.outlineBorder}`, borderRadius: 1, borderBottomLeftRadius: 0, borderBottomRightRadius: 0, px: 2, pt: 3, pb: 1, mt: 2, mb: 0.5 }}>
+        <Box sx={{ bgcolor: palette.surface, border: `1px solid ${color.outlineBorder}`, borderRadius: 1, borderBottomLeftRadius: 0, borderBottomRightRadius: 0, px: 3, pt: 3, pb: 2, mt: 2, mb: 0.5 }}>
         <SectionHeader
           title={(
             <>
