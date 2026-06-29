@@ -440,9 +440,13 @@ export default function PlanView() {
         {/* Commitment coverage — one section (header, filters, per-service cards) at the
             tighter 20px internal spacing; 48px separates it from the plan/KPI section above. */}
         <Stack spacing={2}>
-        {/* Header + compare toggle grouped tightly (4px), separate from the 16px
-            gap down to the service cards. */}
-        <Stack spacing={0.5}>
+        {/* Coverage card + service cards sit flush (the card caps the stack); the
+            footer keeps the section's outer gap. */}
+        <Stack spacing={0}>
+        {/* Plan coverage header + the compare-terms toggle in a card (bottom corners
+            squared so it caps the service-card stack below); the comparison toolbar
+            it reveals is set off from the toggle by a divider. */}
+        <Box sx={{ bgcolor: palette.surface, border: `1px solid ${color.outlineBorder}`, borderRadius: 1, borderBottomLeftRadius: 0, borderBottomRightRadius: 0, px: 2, pt: 3, pb: 1, mt: 2, mb: 0.5 }}>
         <SectionHeader
           title={(
             <>
@@ -470,7 +474,7 @@ export default function PlanView() {
             </Typography>
           </Stack>
           <Collapse in={compare}>
-            <Stack direction="row" alignItems="center" spacing={1} useFlexGap flexWrap="wrap" sx={{ mt: 1.5, bgcolor: palette.surface, border: `1px solid ${color.outlineBorder}`, borderRadius: 1, px: 2, py: 1 }}>
+            <Stack direction="row" alignItems="center" spacing={1} useFlexGap flexWrap="wrap" sx={{ mt: 1.5, pt: 1.5, borderTop: `1px solid ${color.divider}` }}>
               <Typography variant="subtitle2" sx={{ textTransform: 'none' }}>Comparison term lengths:</Typography>
               {TERM_LENGTHS.map((length) => (
                 <Tooltip key={length.id} title="Show or hide commitments at this term length across all resources.">
@@ -518,10 +522,11 @@ export default function PlanView() {
             </Stack>
           </Collapse>
         </Box>
-        </Stack>
+        </Box>
 
-        {/* Service cards — 16px between each */}
-        <Stack spacing={2}>
+        {/* Service cards — each owns its bottom margin (tight when collapsed,
+            roomier when open), so spacing here is 0. */}
+        <Stack spacing={0}>
         {SERVICES.map((s) => (
           <ServiceCard
             key={s.id}
@@ -535,6 +540,7 @@ export default function PlanView() {
             defaultOpen={openServices}
           />
         ))}
+        </Stack>
         </Stack>
 
         <Box sx={{ borderTop: `1px solid ${color.divider}`, pt: 2, pb: 4 }}>

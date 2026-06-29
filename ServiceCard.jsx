@@ -30,6 +30,35 @@ const COL = { lead: 44, info: 300, option: 168, optionMax: 230 };
 const SCOL = 140; // plan-view summary column width
 const CHEV = 40;  // right-edge expand/collapse chevron column
 const HOVER_BG = alpha(palette.neutral.black, 0.03); // light row/header hover
+// Accent-1 (gold) — not yet a palette token. A faint wash of it sits behind the
+// resource drill-down to mark it as a nested level under its commitment.
+// ds-audit-ignore-next-line — brand-accent-1/500 (#ffd080) not a palette token
+const ACCENT1 = '#ffd080';
+const RESOURCE_BG = alpha(ACCENT1, 0.08);
+
+// ─── Drawer panel ────────────────────────────────────────────────────────────
+// Shared "slides out below the row" container: a grey inset band holding an inner
+// bordered surface with squared top corners (so it reads as attached to the row
+// above). Used for both the commitment list under a service card and the resource
+// drill-down under a commitment — same drawer, two nesting levels.
+function DrawerPanel({ children }) {
+  return (
+    <Box sx={{ bgcolor: palette.neutral[50], borderTop: `1px solid ${color.divider}`, p: '1px 6px 6px' }}>
+      <Box
+        sx={{
+          bgcolor: palette.surface,
+          border: `1px solid ${color.outlineBorder}`,
+          borderRadius: 1,
+          borderTopLeftRadius: 0,
+          borderTopRightRadius: 0,
+          overflow: 'hidden',
+        }}
+      >
+        {children}
+      </Box>
+    </Box>
+  );
+}
 
 // Commitment "type" under the selected term: guaranteed → "30 Day GRI" / "1 Year GSP"
 // (brand primary); native → "1 Year" / "3 Year" (text.primary). null when excluded.
@@ -112,15 +141,15 @@ function CellRow({ label, value, valueColor = palette.text.primary }) {
   );
 }
 
-// Figma: commitment_radio (node 102:10494) — right-aligned text stack, minimal
-// 14px radio pinned top-left. Hero number is monthly savings for this term.
-function RadioCellFrame({ selected, borderColor, bg, onClick, tooltip, radio = true, children }) {
+// Figma: commitment_radio (node 102:10494) — right-aligned text stack. Selection
+// reads from the cell's border + fill, so there's no explicit radio. Hero number
+// is monthly savings for this term.
+function OptionCellFrame({ borderColor, bg, onClick, tooltip, children }) {
   return (
     <HoverPopover content={tooltip}>
       <Box
         onClick={onClick ? (e) => { e.stopPropagation(); onClick(); } : undefined}
         sx={{
-          position: 'relative',
           border: `1px solid ${borderColor}`,
           borderRadius: 1,
           px: 1.5,
@@ -137,20 +166,6 @@ function RadioCellFrame({ selected, borderColor, bg, onClick, tooltip, radio = t
           ...(onClick && { '&:hover': { boxShadow: elevation[2] } }),
         }}
       >
-        {radio && (
-          <MuiIcon
-            {...(!selected && { baseClassName: 'material-icons-outlined' })}
-            sx={{
-              position: 'absolute',
-              left: 5,
-              top: 5,
-              fontSize: 14,
-              color: selected ? palette.uiPrimary[500] : palette.text.secondary,
-            }}
-          >
-            {selected ? 'radio_button_checked' : 'radio_button_unchecked'}
-          </MuiIcon>
-        )}
         {children}
       </Box>
     </HoverPopover>
@@ -163,24 +178,26 @@ function OptionCell({ commitment, termId, selected, onSelect, showRisk, planView
   const term = TERMS[termId];
   const risk = riskParts(opt);
   const riskColor = term.guaranteed ? semantic.success.dark : semantic.warning.dark;
-  // Plan view de-emphasizes unselected options: no border, light-grey fill, neutral savings.
+  // Unselected options are outlined with no fill; the selected one carries the
+  // brand/warning tint. (Plan view also drops the savings color to neutral.)
   return (
-    <RadioCellFrame
-      selected={selected}
+    <OptionCellFrame
       borderColor={selected
         ? (term.guaranteed ? palette.brandPrimary[300] : palette.warning[300])
-        : (planView ? 'transparent' : color.outlineBorder)}
+        : color.outlineBorder}
       bg={selected
         ? (term.guaranteed ? selectedBg : selectedBgNative)
-        : (planView ? alpha(palette.neutral[50], 0.7) : palette.surface)}
+        : 'transparent'}
       onClick={onSelect} // selecting a term always sets it — exclude via the row checkbox, not the radio
       tooltip={optionTooltip(commitment, opt)}
     >
-      <Typography variant="h6" sx={{ color: (planView && !selected) ? palette.text.primary : semantic.success.dark }}>
-        +{fmtMoney(opt.savingsMo)}/mo
-      </Typography>
+      <Stack direction="row" justifyContent="space-between" alignItems="baseline" sx={{ alignSelf: 'stretch' }}>
+        <Typography variant="h6" color="text.secondary">Net Savings/mo</Typography>
+        <Typography variant="h6" sx={{ color: (planView && !selected) ? palette.text.primary : semantic.success.dark }}>
+          +{fmtMoney(opt.savingsMo)}
+        </Typography>
+      </Stack>
       <CellRow label="Savings Rate" value={fmtPct(opt.rate)} />
-      <CellRow label="Cost/mo" value={fmtMoney(opt.commitCostMo)} />
       {showRisk && (
         <>
           <Divider sx={{ alignSelf: 'stretch' }} />
@@ -190,7 +207,7 @@ function OptionCell({ commitment, termId, selected, onSelect, showRisk, planView
           </Box>
         </>
       )}
-    </RadioCellFrame>
+    </OptionCellFrame>
   );
 }
 
@@ -200,8 +217,7 @@ function OnDemandCell({ commitment, visibleTermIds, showRisk }) {
   const costMo = commitment.instances.reduce((a, i) => a + i.costMo, 0);
   const missedMo = Math.max(...visibleTermIds.map((t) => aggregateOption(commitment.instances, t).savingsMo));
   return (
-    <RadioCellFrame
-      radio={false}
+    <OptionCellFrame
       borderColor="transparent"
       bg={onDemandBg}
       tooltip={(
@@ -217,9 +233,11 @@ function OnDemandCell({ commitment, visibleTermIds, showRisk }) {
         />
       )}
     >
-      <Typography variant="h6" color="text.secondary">$0/mo</Typography>
+      <Stack direction="row" justifyContent="space-between" alignItems="baseline" sx={{ alignSelf: 'stretch' }}>
+        <Typography variant="h6" color="text.secondary">Net Savings/mo</Typography>
+        <Typography variant="h6" color="text.secondary">$0</Typography>
+      </Stack>
       <CellRow label="Savings Rate" value="0%" valueColor={palette.text.secondary} />
-      <CellRow label="Cost/mo" value={fmtMoney(costMo)} valueColor={palette.text.secondary} />
       {showRisk && (
         <>
           <Divider sx={{ alignSelf: 'stretch' }} />
@@ -229,27 +247,11 @@ function OnDemandCell({ commitment, visibleTermIds, showRisk }) {
           </Box>
         </>
       )}
-    </RadioCellFrame>
+    </OptionCellFrame>
   );
 }
 
 // ─── Commitment table header ─────────────────────────────────────────────────
-
-// Select-all radio in a column header — sets/clears that term across every
-// commitment in the service (replaces the old per-column "apply to all" footer).
-function SelectAllRadio({ selected, onClick, title, tone = palette.uiPrimary[500] }) {
-  return (
-    <Tooltip title={title}>
-      <MuiIcon
-        onClick={onClick}
-        {...(!selected && { baseClassName: 'material-icons-outlined' })}
-        sx={{ fontSize: 16, cursor: 'pointer', flexShrink: 0, color: selected ? tone : palette.text.secondary }}
-      >
-        {selected ? 'radio_button_checked' : 'radio_button_unchecked'}
-      </MuiIcon>
-    </Tooltip>
-  );
-}
 
 function CommitmentTableHeader({
   visibleTermIds, view, setView, hideOnDemand = false,
@@ -279,48 +281,53 @@ function CommitmentTableHeader({
       </Box>
       <Stack direction="row" spacing={1} alignItems="flex-end">
         {!hideOnDemand && (
-        <Box sx={{ width: COL.optionMax, flexShrink: 0, px: 1.5, pb: 1 }}>
+        <Box sx={{ width: COL.optionMax, flexShrink: 0, px: 1.5, pb: 1, border: '1px solid transparent' }}>
           <Typography variant="micro" color="text.secondary" sx={{ display: 'block' }}>NO COMMITMENT</Typography>
           <Typography variant="h6" sx={{ color: semantic.error.dark }}>On-Demand</Typography>
-          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>net savings /mo</Typography>
         </Box>
         )}
         {visibleTermIds.map((t) => {
           const term = TERMS[t];
           const lockDate = term.lockLabel.replace(/^Locked until /, '');
+          const allOnThis = serviceTerm === t;
+          // The whole header acts as the select-all control for its term column.
+          // The transparent border matches the option cells' border so the header
+          // text lines up with the cell text below it.
           return (
-            <Box key={t} sx={{ width: COL.optionMax, flexShrink: 0, px: 1.5, pb: 1 }}>
-              <Typography variant="micro" color="text.secondary" sx={{ display: 'block' }}>
-                {term.guaranteed ? 'GUARANTEED' : 'NON-GUARANTEED'}
-              </Typography>
-              <Stack direction="row" alignItems="center" spacing={0.5}>
-                {showSelectAll && (
-                  <SelectAllRadio
-                    selected={serviceTerm === t}
-                    onClick={() => setServiceTerm(serviceId, t)}
-                    title={serviceTerm === t
-                      ? `All ${commitmentCount} commitments on ${term.label}`
-                      : `Apply ${term.label} to all ${commitmentCount} commitments`}
-                  />
-                )}
-                <Typography variant="h6" sx={{ color: term.guaranteed ? palette.brandPrimary[500] : CSP.text }}>
-                  {term.label}
+            <Tooltip
+              key={t}
+              title={!showSelectAll ? '' : allOnThis
+                ? `All ${commitmentCount} commitments on ${term.label}`
+                : `Apply ${term.label} to all ${commitmentCount} commitments`}
+            >
+              <Box
+                onClick={showSelectAll ? () => setServiceTerm(serviceId, t) : undefined}
+                sx={{
+                  width: COL.optionMax, flexShrink: 0, px: 1.5, pb: 1, borderRadius: 1,
+                  border: '1px solid transparent',
+                  ...(showSelectAll && { cursor: 'pointer', '&:hover': { bgcolor: HOVER_BG } }),
+                }}
+              >
+                <Typography variant="micro" color="text.secondary" sx={{ display: 'block' }}>
+                  {term.guaranteed ? 'GUARANTEED' : 'NON-GUARANTEED'}
                 </Typography>
-                {!term.guaranteed && (
-                  <Tooltip
-                    title={`Native ${term.short} locks you in until ${lockDate}. If your usage drops, you keep paying for the unused commitment until then — that remaining obligation is your amount at risk. Guaranteed terms carry $0 at risk: Archera buys back unused commitments.`}
-                  >
-                    <Stack direction="row" alignItems="center" spacing={0.25} sx={{ cursor: 'default' }}>
-                      <MuiIcon baseClassName="material-icons-outlined" sx={{ fontSize: 14, color: semantic.warning.dark }}>lock</MuiIcon>
-                      <Typography variant="caption" sx={{ color: semantic.warning.dark }}>{lockDate}</Typography>
-                    </Stack>
-                  </Tooltip>
-                )}
-              </Stack>
-              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>
-                est. net savings /mo
-              </Typography>
-            </Box>
+                <Stack direction="row" alignItems="center" spacing={0.5}>
+                  <Typography variant="h6" sx={{ color: term.guaranteed ? palette.brandPrimary[500] : CSP.text }}>
+                    {term.label}
+                  </Typography>
+                  {!term.guaranteed && (
+                    <Tooltip
+                      title={`Native ${term.short} locks you in until ${lockDate}. If your usage drops, you keep paying for the unused commitment until then — that remaining obligation is your amount at risk. Guaranteed terms carry $0 at risk: Archera buys back unused commitments.`}
+                    >
+                      <Stack direction="row" alignItems="center" spacing={0.25} sx={{ cursor: 'default' }} onClick={(e) => e.stopPropagation()}>
+                        <MuiIcon baseClassName="material-icons-outlined" sx={{ fontSize: 14, color: semantic.warning.dark }}>lock</MuiIcon>
+                        <Typography variant="caption" sx={{ color: semantic.warning.dark }}>{lockDate}</Typography>
+                      </Stack>
+                    </Tooltip>
+                  )}
+                </Stack>
+              </Box>
+            </Tooltip>
           );
         })}
       </Stack>
@@ -415,17 +422,9 @@ function ResourceTable({ instances, infraSrc, service, selections, pageSize = 5 
   const pageItems = view.slice((current - 1) * pageSize, current * pageSize);
 
   return (
-    <Box sx={{ bgcolor: palette.neutral[50], borderTop: `1px solid ${color.divider}`, p: '1px 6px 6px' }}>
-      <Box
-        sx={{
-          bgcolor: palette.surface,
-          border: `1px solid ${color.outlineBorder}`,
-          borderRadius: 1,
-          borderTopLeftRadius: 0,
-          borderTopRightRadius: 0,
-          overflow: 'hidden',
-        }}
-      >
+    // Resources live in the drawer (grey band + inner bordered surface); the gold
+    // accent on each row marks them as the nested level within it.
+    <DrawerPanel>
       {/* Column headers */}
       <Stack direction="row" spacing={1.5} alignItems="center" sx={{ px: 2, pt: 2, pb: 1, borderBottom: `1px solid ${color.divider}` }}>
         {/* Lead spacer so resource content lines up under the commitment name */}
@@ -445,7 +444,7 @@ function ResourceTable({ instances, infraSrc, service, selections, pageSize = 5 
           direction="row"
           spacing={1.5}
           alignItems="center"
-          sx={{ px: 2, py: 1, borderTop: idx ? `1px solid ${color.divider}` : 'none', '&:hover': { bgcolor: HOVER_BG } }}
+          sx={{ px: 2, py: 1, bgcolor: RESOURCE_BG, borderTop: idx ? `1px solid ${color.divider}` : 'none', '&:hover': { bgcolor: HOVER_BG } }}
         >
           <Box sx={{ width: COL.lead, flexShrink: 0 }} />
           <HoverPopover placement="bottom-start" interactive content={<ResourceDetailPopover instance={r.i} service={service} infraSrc={infraSrc} />}>
@@ -484,10 +483,10 @@ function ResourceTable({ instances, infraSrc, service, selections, pageSize = 5 
           onPageChange={(e, p) => setPage(p + 1)}
           rowsPerPage={pageSize}
           rowsPerPageOptions={[]}
+          sx={{ borderTop: `1px solid ${color.divider}` }}
         />
       )}
-      </Box>
-    </Box>
+    </DrawerPanel>
   );
 }
 
@@ -887,7 +886,16 @@ export default function ServiceCard({ service, selections, setCommitmentTerm, se
   const [view, setView] = useState('commitment');
 
   return (
-    <Box sx={{ bgcolor: palette.surface, border: `1px solid ${color.outlineBorder}`, borderRadius: 1 }}>
+    <Box
+      sx={{
+        bgcolor: palette.surface,
+        border: `1px solid ${color.outlineBorder}`,
+        borderRadius: 1,
+        // Plan view: cards sit tight (0.25rem) when collapsed; an open card gets
+        // extra breathing room below it to set its drill-down apart from the next.
+        ...(planView && { mb: open ? 3 : 0.5, transition: 'margin 0.2s ease' }),
+      }}
+    >
       {/* Header — click anywhere (except the checkbox/chevron) to toggle the card */}
       <Stack
         direction="row"
